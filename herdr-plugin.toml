@@ -1,0 +1,30 @@
+id = "edger"
+name = "Edger"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Directional navigation across editor windows, Herdr panes, tabs, and workspaces"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "left"
+title = "Navigate left"
+contexts = ["global"]
+command = ["bash", "bin/edger", "left"]
+
+[[actions]]
+id = "down"
+title = "Navigate down"
+contexts = ["global"]
+command = ["bash", "bin/edger", "down"]
+
+[[actions]]
+id = "up"
+title = "Navigate up"
+contexts = ["global"]
+command = ["bash", "bin/edger", "up"]
+
+[[actions]]
+id = "right"
+title = "Navigate right"
+contexts = ["global"]
+command = ["bash", "bin/edger", "right"]
