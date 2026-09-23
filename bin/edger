@@ -109,6 +109,7 @@ tmux_cross() {
 
 case $backend in
   herdr)
+    command -v "$herdr" >/dev/null || { echo "edger: Herdr executable not found: $herdr" >&2; exit 1; }
     [[ -n $herdr_pane ]] || { echo 'edger: no Herdr pane id' >&2; exit 1; }
     if [[ $mode == normal ]] && herdr_process_is_editor; then
       "$herdr" pane send-keys "$herdr_pane" "$key" >/dev/null
@@ -116,6 +117,7 @@ case $backend in
       herdr_cross
     fi ;;
   tmux)
+    command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
     [[ -n $tmux_pane ]] || tmux_pane=$(tmux_run display-message -p '#{pane_id}')
     if [[ $mode == normal ]] && tmux_editor; then
       tmux_run send-keys -t "$tmux_pane" "$key"

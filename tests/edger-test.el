@@ -10,6 +10,7 @@
            (right (split-window-right))
            (frame (selected-frame))
            calls)
+      (should (file-executable-p edger-executable))
       (unwind-protect
           (progn
             (set-frame-parameter frame 'edger-herdr-pane-id "w1:p2")
@@ -24,8 +25,8 @@
               (should-not calls)
               (edger-right)
               (should (equal (car calls)
-                             '(("edger" nil nil nil "cross" "right")
-                               "/tmp/herdr.sock" "w1:p2")))
+                             (list (list edger-executable nil nil nil "cross" "right")
+                                   "/tmp/herdr.sock" "w1:p2")))
               (edger-left)
               (should (eq (selected-window) left))))
         (set-frame-parameter frame 'edger-herdr-pane-id nil)

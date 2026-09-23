@@ -28,7 +28,7 @@ Emacs 31 can install this repository directly:
          ("C-M-l" . edger-right)))
 ```
 
-Use `M-h/j/k/l` instead if those are your preferred keys. The package does not install mappings. Set `edger-executable` to the script's path or put `edger` on `PATH`. Ordinary terminal Emacs inherits `HERDR_PANE_ID` or `TMUX_PANE`. A graphical Emacs daemon serving terminal clients needs the pane identity per frame; pass `edger-herdr-pane-id` and `edger-herdr-socket-path` with `emacsclient --tty -F`, or `edger-tmux-pane-id` and `edger-tmux-socket` for tmux. The socket value is `$TMUX` for tmux and `$HERDR_SOCKET_PATH` for Herdr. Graphical frames stay inside Emacs.
+Use `M-h/j/k/l` instead if those are your preferred keys. The package does not install mappings. Its VC checkout includes `bin/edger`, which the Elisp uses by default; set `edger-executable` only to use another copy. You need the CLI for the multiplexer you actually use, Herdr or tmux, not both. Ordinary terminal Emacs inherits `HERDR_PANE_ID` or `TMUX_PANE`. A graphical Emacs daemon serving terminal clients needs the pane identity per frame; pass `edger-herdr-pane-id` and `edger-herdr-socket-path` with `emacsclient --tty -F`, or `edger-tmux-pane-id` and `edger-tmux-socket` for tmux. The socket value is `$TMUX` for tmux and `$HERDR_SOCKET_PATH` for Herdr. Graphical frames stay inside Emacs.
 
 ## Neovim
 

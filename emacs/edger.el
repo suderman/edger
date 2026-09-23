@@ -16,8 +16,9 @@
 
 (defgroup edger nil "Directional window and pane navigation." :group 'windows)
 
-(defcustom edger-executable "edger"
-  "Path to the edger executable."
+(defcustom edger-executable
+  (expand-file-name "../bin/edger" (file-name-directory load-file-name))
+  "Path to the edger executable.  Defaults to the copy in this checkout."
   :type 'string
   :group 'edger)
 

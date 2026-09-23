@@ -89,6 +89,20 @@ reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross down
 session="\$2"
 assert_log "switch-client -c /dev/tty -t $session"
+reset_log
+TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=herdr "$edger" cross left
+assert_log 'tab focus t1'
+reset_log
+HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross right
+assert_log 'next-window -t @1'
+if HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=herdr "$edger" cross left > "$tmp/error" 2>&1; then
+  echo 'Missing Herdr executable accepted' >&2; exit 1
+fi
+grep -F 'Herdr executable not found' "$tmp/error" >/dev/null
+if TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=tmux "$edger" cross left > "$tmp/error" 2>&1; then
+  echo 'Missing tmux executable accepted' >&2; exit 1
+fi
+grep -F 'tmux executable not found' "$tmp/error" >/dev/null
 cat > "$tmp/bin/edger" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$EDGER_TEST_LOG"
