@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Route one direction through the active editor, multiplexer pane, then outer layer.
+set -euo pipefail
+
+usage() { echo 'usage: edger [cross] left|down|up|right [forward-key]' >&2; exit 2; }
+mode=normal
+if [[ ${1-} == cross ]]; then mode=cross; shift; fi
+dir=${1-}
+case $dir in
+  left) letter=h; step=-1; tmux_dir=L ;;
+  down) letter=j; step=1; tmux_dir=D ;;
+  up) letter=k; step=-1; tmux_dir=U ;;
+  right) letter=l; step=1; tmux_dir=R ;;
+  *) usage ;;
+esac
+[[ $# -le 2 ]] || usage
+key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$letter}
+backend=${EDGER_BACKEND:-}
+if [[ -z $backend ]]; then
+  if [[ -n ${TMUX-} ]]; then backend=tmux
+  elif [[ -n ${HERDR_PANE_ID-}${HERDR_ACTIVE_PANE_ID-} ]]; then backend=herdr
+  else exit 0
+  fi
+fi
+
+# Parse all available process identities. Herdr's display name alone can be a
+# wrapper name, while argv[0] still identifies the actual editor binary.
+editor_re='^(emacs|emacsclient|nvim|vim|view|gvim|nvimdiff|vimdiff)$'
+editor_name() {
+  local name=${1##*/}
+  [[ ${name,,} =~ $editor_re ]]
+}
+
+herdr=${HERDR_BIN_PATH:-herdr}
+herdr_pane=${HERDR_ACTIVE_PANE_ID:-${HERDR_PANE_ID:-}}
+herdr_process_is_editor() {
+  "$herdr" pane process-info --pane "$herdr_pane" 2>/dev/null | jq -e '
+    any(.result.process_info.foreground_processes[]?;
+      [.name?, .argv0?, .argv[0]?] | any(. != null;
+        (split("/")[-1] | ascii_downcase) | test("^(emacs|emacsclient|nvim|vim|view|gvim|nvimdiff|vimdiff)$")))
+  ' >/dev/null 2>&1
+}
+herdr_next() {
+  local kind=$1 id=$2 field=$3 list=$4
+  "$herdr" "$kind" list ${5:+--workspace "$5"} |
+    jq -r --arg id "$id" --arg field "$field" --arg list "$list" --argjson step "$step" '
+      [.result[$list][]?] | sort_by(.number) |
+      (map(.[$field]) | index($id)) as $i |
+      if length < 2 or $i == null then empty
+      else .[($i + $step + length) % length][$field] end'
+}
+herdr_cross() {
+  local response changed workspace current next
+  response=$("$herdr" pane focus --direction "$dir" --pane "$herdr_pane") || return 1
+  changed=$(jq -r '.result.focus.changed // true' <<< "$response")
+  [[ $changed == false ]] || return 0
+  if [[ $dir == left || $dir == right ]]; then
+    workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
+    current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.tab_id')
+    next=$(herdr_next tab "$current" tab_id tabs "$workspace")
+    [[ -n $next ]] && "$herdr" tab focus "$next" >/dev/null
+  else
+    current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
+    next=$(herdr_next workspace "$current" workspace_id workspaces)
+    [[ -n $next ]] && "$herdr" workspace focus "$next" >/dev/null
+  fi
+}
+
+tmux_cmd=${TMUX_BIN_PATH:-tmux}
+tmux_pane=${TMUX_PANE:-}
+tmux_run() { "$tmux_cmd" "$@"; }
+tmux_editor() {
+  local tty name
+  tty=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_tty}')
+  # A foreground process owns '+' in ps STAT. Check executable argv[0] too,
+  # since emacsclient can be renamed by its wrapper.
+  while read -r state name; do
+    if [[ $state == *+* ]] && editor_name "$name"; then return 0; fi
+  done < <(ps -t "$tty" -o stat= -o args= 2>/dev/null)
+  return 1
+}
+tmux_cross() {
+  local edge window
+  case $dir in
+    left) edge=pane_at_left ;; right) edge=pane_at_right ;;
+    up) edge=pane_at_top ;; down) edge=pane_at_bottom ;;
+  esac
+  if [[ $(tmux_run display-message -p -t "$tmux_pane" "#{${edge}}") == 0 ]]; then
+    tmux_run select-pane -t "$tmux_pane" "-$tmux_dir"
+    return
+  fi
+  if [[ $dir == left || $dir == right ]]; then
+    window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
+    if [[ $step == 1 ]]; then tmux_run next-window -t "$window"
+    else tmux_run previous-window -t "$window"; fi
+  elif [[ ${EDGER_TMUX_SESSIONS:-0} == 1 && -n ${EDGER_TMUX_CLIENT_TTY:-} ]]; then
+    local current next
+    current=$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}')
+    next=$(tmux_run list-sessions -F '#{session_id}' | awk -v current="$current" -v step="$step" '
+      { ids[NR]=$1; if ($1==current) pos=NR }
+      END { if (NR>1 && pos) print ids[(pos-1+step+NR)%NR+1] }')
+    [[ -n $next ]] && tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$next"
+  fi
+}
+
+case $backend in
+  herdr)
+    [[ -n $herdr_pane ]] || { echo 'edger: no Herdr pane id' >&2; exit 1; }
+    if [[ $mode == normal ]] && herdr_process_is_editor; then
+      "$herdr" pane send-keys "$herdr_pane" "$key" >/dev/null
+    else
+      herdr_cross
+    fi ;;
+  tmux)
+    [[ -n $tmux_pane ]] || tmux_pane=$(tmux_run display-message -p '#{pane_id}')
+    if [[ $mode == normal ]] && tmux_editor; then
+      tmux_run send-keys -t "$tmux_pane" "$key"
+    else
+      tmux_cross
+    fi ;;
+  *) echo "edger: unknown backend: $backend" >&2; exit 2 ;;
+esac
