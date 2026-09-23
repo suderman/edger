@@ -1,0 +1,11 @@
+vim.opt.rtp:append(vim.fn.getcwd())
+vim.env.HERDR_PANE_ID = "p1"
+require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN })
+vim.cmd.vsplit()
+local left = vim.api.nvim_get_current_win()
+vim.cmd.EdgerRight()
+assert(vim.api.nvim_get_current_win() ~= left, "Neovim should move internally first")
+assert(#vim.fn.readfile(vim.env.EDGER_TEST_LOG) == 0, "Local movement called the multiplexer")
+vim.cmd.EdgerRight()
+assert(vim.fn.readfile(vim.env.EDGER_TEST_LOG)[1] == "cross right", "Edge should cross")
+vim.cmd.qa({ bang = true })

@@ -21,7 +21,7 @@ Emacs 31 can install this repository directly:
 
 ```elisp
 (use-package edger
-  :vc (:url "https://github.com/suderman/edger" :lisp-dir "emacs")
+  :vc (:url "https://github.com/suderman/edger" :lisp-dir "emacs" :rev :newest)
   :bind (("C-M-h" . edger-left)
          ("C-M-j" . edger-down)
          ("C-M-k" . edger-up)

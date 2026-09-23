@@ -42,20 +42,21 @@ chmod +x "$tmp/bin/"*
 export PATH="$tmp/bin:$PATH" HERDR_BIN_PATH="$tmp/bin/herdr" TMUX_BIN_PATH="$tmp/bin/tmux" EDGER_BACKEND=herdr HERDR_PANE_ID=p1
 edger="$root/bin/edger"
 assert_log() { grep -Fx -- "$1" "$EDGER_TEST_LOG" >/dev/null || { echo "Missing: $1" >&2; cat "$EDGER_TEST_LOG" >&2; exit 1; }; }
+assert_absent() { if grep -q -- "$1" "$EDGER_TEST_LOG"; then echo "Unexpected: $1" >&2; exit 1; fi; }
 reset_log() { : > "$EDGER_TEST_LOG"; }
 
 if "$edger" diagonal 2>/dev/null; then echo 'invalid direction accepted' >&2; exit 1; fi
 reset_log
 EDGER_TEST_PROCESS=/bin/emacsclient "$edger" left alt+h
 assert_log 'pane send-keys p1 alt+h'
-! grep -q 'pane focus' "$EDGER_TEST_LOG"
+assert_absent 'pane focus'
 reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" down
 assert_log 'pane send-keys p1 ctrl+alt+j'
 reset_log
 EDGER_TEST_PROCESS=/bin/bash EDGER_TEST_MOVED=true "$edger" down
 assert_log 'pane focus --direction down --pane p1'
-! grep -q 'workspace list' "$EDGER_TEST_LOG"
+assert_absent 'workspace list'
 reset_log
 "$edger" cross right
 assert_log 'pane focus --direction right --pane p1'
@@ -73,18 +74,27 @@ assert_log 'workspace focus w2'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" left C-M-h
 assert_log 'send-keys -t %1 C-M-h'
-! grep -q 'select-pane' "$EDGER_TEST_LOG"
+assert_absent 'select-pane'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_EDGE=0 "$edger" cross right
 assert_log 'select-pane -t %1 -R'
-! grep -q 'next-window' "$EDGER_TEST_LOG"
+assert_absent 'next-window'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross right
 assert_log 'next-window -t @1'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross up
-! grep -q 'switch-client' "$EDGER_TEST_LOG"
+assert_absent 'switch-client'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross down
-assert_log 'switch-client -c /dev/tty -t $2'
-echo 'edger routing checks passed'
+session="\$2"
+assert_log "switch-client -c /dev/tty -t $session"
+cat > "$tmp/bin/edger" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$EDGER_TEST_LOG"
+SH
+chmod +x "$tmp/bin/edger"
+export EDGER_TEST_BIN="$tmp/bin/edger"
+reset_log
+(cd "$root" && nvim --headless --clean -u NONE -l tests/neovim.lua)
+echo 'edger routing and Neovim checks passed'
