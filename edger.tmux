@@ -15,3 +15,18 @@ for spec in 'h left' 'j down' 'k up' 'l right'; do
     "$sessions" "$root/bin/edger" "$direction" "$key"
   tmux bind-key -n "$key" run-shell "$command"
 done
+for spec in 'tab t' 'horizontal u' 'vertical i' 'close w'; do
+  read -r action default <<< "$spec"
+  letter=$(tmux show-option -gqv "@edger-$action-key")
+  key="$modifier-${letter:-$default}"
+  printf -v command 'TMUX_PANE="#{pane_id}" EDGER_BACKEND=tmux %q %q %q' \
+    "$root/bin/edger" "$action" "$key"
+  tmux bind-key -n "$key" run-shell "$command"
+done
+for spec in 'h left' 'j down' 'k up' 'l right'; do
+  read -r letter direction <<< "$spec"
+  key="$modifier-${letter^^}"
+  printf -v command 'TMUX_PANE="#{pane_id}" EDGER_BACKEND=tmux %q resize %q %q' \
+    "$root/bin/edger" "$direction" "$key"
+  tmux bind-key -n "$key" run-shell "$command"
+done

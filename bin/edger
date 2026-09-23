@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-# Route one direction through the active editor, multiplexer pane, then outer layer.
+# Route editor-aware window actions through Herdr or tmux.
 set -euo pipefail
 
-usage() { echo 'usage: edger [cross] left|down|up|right [forward-key]' >&2; exit 2; }
+usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] tab|horizontal|vertical|close [forward-key]' >&2; exit 2; }
 mode=normal
 if [[ ${1-} == cross ]]; then mode=cross; shift; fi
-dir=${1-}
-case $dir in
+operation=navigate
+if [[ ${1-} == resize ]]; then operation=resize; shift; fi
+name=${1-}
+case $name in
   left) letter=h; step=-1; tmux_dir=L ;;
   down) letter=j; step=1; tmux_dir=D ;;
   up) letter=k; step=-1; tmux_dir=U ;;
   right) letter=l; step=1; tmux_dir=R ;;
+  tab) letter=t ;; horizontal) letter=u ;; vertical) letter=i ;; close) letter=w ;;
   *) usage ;;
 esac
+if [[ $operation == resize && $name != left && $name != right && $name != up && $name != down ]]; then usage; fi
 [[ $# -le 2 ]] || usage
-key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$letter}
+shift_key=
+[[ $operation == resize ]] && shift_key=shift+
+key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$shift_key$letter}
+if [[ $operation == navigate && $name != left && $name != right && $name != up && $name != down ]]; then operation=$name; fi
+dir=$name
 backend=${EDGER_BACKEND:-}
 if [[ -z $backend ]]; then
   if [[ -n ${TMUX-} ]]; then backend=tmux
@@ -83,6 +91,23 @@ tmux_editor() {
   done < <(ps -t "$tty" -o stat= -o comm= -o args= 2>/dev/null)
   return 1
 }
+herdr_action() {
+  local workspace count
+  case $operation in
+    resize) "$herdr" pane resize --direction "$name" --pane "$herdr_pane" >/dev/null 2>&1 || : ;;
+    tab)
+      workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
+      "$herdr" tab create --workspace "$workspace" --focus >/dev/null ;;
+    horizontal) "$herdr" pane split --pane "$herdr_pane" --direction down --focus >/dev/null ;;
+    vertical) "$herdr" pane split --pane "$herdr_pane" --direction right --focus >/dev/null ;;
+    close)
+      workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
+      count=$("$herdr" workspace list | jq '.result.workspaces | length')
+      if [[ $count == 1 ]] && [[ $("$herdr" workspace get "$workspace" | jq -r '.result.workspace.pane_count') == 1 ]]; then return; fi
+      "$herdr" pane close "$herdr_pane" >/dev/null ;;
+  esac
+}
+
 tmux_cross() {
   local edge window
   case $dir in
@@ -107,22 +132,43 @@ tmux_cross() {
   fi
 }
 
+tmux_action() {
+  local count
+  case $operation in
+    resize)
+      local amount=3
+      [[ $name == left || $name == right ]] && amount=5
+      tmux_run resize-pane -t "$tmux_pane" "-$tmux_dir" "$amount" 2>/dev/null || : ;;
+    tab) tmux_run new-window -t "$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}'):" -c '#{pane_current_path}' ;;
+    horizontal) tmux_run split-window -t "$tmux_pane" -c '#{pane_current_path}' ;;
+    vertical) tmux_run split-window -h -t "$tmux_pane" -c '#{pane_current_path}' ;;
+    close)
+      count=$(tmux_run list-sessions -F '#{session_id}' | wc -l)
+      if [[ $count == 1 && $(tmux_run display-message -p -t "$tmux_pane" '#{session_windows}') == 1 && $(tmux_run display-message -p -t "$tmux_pane" '#{window_panes}') == 1 ]]; then return; fi
+      tmux_run kill-pane -t "$tmux_pane" ;;
+  esac
+}
+
 case $backend in
   herdr)
     command -v "$herdr" >/dev/null || { echo "edger: Herdr executable not found: $herdr" >&2; exit 1; }
     [[ -n $herdr_pane ]] || { echo 'edger: no Herdr pane id' >&2; exit 1; }
     if [[ $mode == normal ]] && herdr_process_is_editor; then
       "$herdr" pane send-keys "$herdr_pane" "$key" >/dev/null
-    else
+    elif [[ $operation == navigate ]]; then
       herdr_cross
+    else
+      herdr_action
     fi ;;
   tmux)
     command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
     [[ -n $tmux_pane ]] || tmux_pane=$(tmux_run display-message -p '#{pane_id}')
     if [[ $mode == normal ]] && tmux_editor; then
       tmux_run send-keys -t "$tmux_pane" "$key"
-    else
+    elif [[ $operation == navigate ]]; then
       tmux_cross
+    else
+      tmux_action
     fi ;;
   *) echo "edger: unknown backend: $backend" >&2; exit 2 ;;
 esac

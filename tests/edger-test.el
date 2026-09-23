@@ -32,6 +32,29 @@
         (set-frame-parameter frame 'edger-herdr-pane-id nil)
         (set-frame-parameter frame 'edger-herdr-socket-path nil)))))
 
+(ert-deftest edger-actions-stay-local-then-cross ()
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((frame (selected-frame)) calls)
+      (unwind-protect
+          (progn
+            (set-frame-parameter frame 'edger-herdr-pane-id "p1")
+            (cl-letf (((symbol-function 'call-process)
+                       (lambda (&rest args) (push args calls) 0)))
+              (edger-resize-left)
+              (should (equal (car calls) (list edger-executable nil nil nil "cross" "resize" "left")))
+              (setq calls nil)
+              (edger-vertical)
+              (let ((width (window-total-width)))
+                (edger-resize-left)
+                (should (/= width (window-total-width)))
+                (should-not calls))
+              (edger-close)
+              (should-not calls)
+              (edger-close)
+              (should (equal (car calls) (list edger-executable nil nil nil "cross" "close")))))
+        (set-frame-parameter frame 'edger-herdr-pane-id nil)))))
+
 (ert-deftest edger-graphical-frame-stays-local ()
   (save-window-excursion
     (delete-other-windows)

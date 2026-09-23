@@ -2,7 +2,7 @@ id = "edger"
 name = "Edger"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
-description = "Directional navigation across editor windows, Herdr panes, tabs, and workspaces"
+description = "Editor-aware navigation and window actions across Herdr panes"
 platforms = ["linux", "macos"]
 
 [[actions]]
@@ -28,3 +28,51 @@ id = "right"
 title = "Navigate right"
 contexts = ["global"]
 command = ["bash", "bin/edger", "right"]
+
+[[actions]]
+id = "resize-left"
+title = "Resize left"
+contexts = ["global"]
+command = ["bash", "bin/edger", "resize", "left"]
+
+[[actions]]
+id = "resize-down"
+title = "Resize down"
+contexts = ["global"]
+command = ["bash", "bin/edger", "resize", "down"]
+
+[[actions]]
+id = "resize-up"
+title = "Resize up"
+contexts = ["global"]
+command = ["bash", "bin/edger", "resize", "up"]
+
+[[actions]]
+id = "resize-right"
+title = "Resize right"
+contexts = ["global"]
+command = ["bash", "bin/edger", "resize", "right"]
+
+[[actions]]
+id = "tab"
+title = "New tab"
+contexts = ["global"]
+command = ["bash", "bin/edger", "tab"]
+
+[[actions]]
+id = "horizontal"
+title = "Split horizontally"
+contexts = ["global"]
+command = ["bash", "bin/edger", "horizontal"]
+
+[[actions]]
+id = "vertical"
+title = "Split vertically"
+contexts = ["global"]
+command = ["bash", "bin/edger", "vertical"]
+
+[[actions]]
+id = "close"
+title = "Close window or pane"
+contexts = ["global"]
+command = ["bash", "bin/edger", "close"]
