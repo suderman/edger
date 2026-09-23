@@ -1,1 +1,188 @@
-* edger
+* Edger
+
+Use the same directional keys to move through Emacs or Neovim windows, then Herdr or tmux panes. At a pane edge, left/right moves to another Herdr tab or tmux window. Up/down moves to another Herdr workspace; tmux session switching is optional. Herdr tabs and workspaces wrap.
+
+| Key | Direction | Herdr pane edge    | tmux pane edge               |
+|-----+-----------+--------------------+------------------------------|
+| h   | left      | previous tab       | previous window              |
+| j   | down      | next workspace     | next session, if enabled     |
+| k   | up        | previous workspace | previous session, if enabled |
+| l   | right     | next tab           | next window                  |
+
+The default forwarded chord is Ctrl+Alt+h/j/k/l. Neovim and tmux map it by default; bind it yourself in Emacs and Herdr. Ctrl-only and Alt-only examples follow. Choose one family across the layers. Edger does not control desktop windows.
+
+** Emacs
+
+Emacs 31 can install this repository with =package-vc= through =use-package=. The package uses its bundled =bin/edger= executable. Pick one binding set:
+
+#+begin_src emacs-lisp
+;; Ctrl+Alt (default)
+(use-package edger
+  :vc (:url "https://github.com/suderman/edger" :lisp-dir "emacs" :rev :newest)
+  :bind (("C-M-h" . edger-left)
+         ("C-M-j" . edger-down)
+         ("C-M-k" . edger-up)
+         ("C-M-l" . edger-right)))
+#+end_src
+
+#+begin_src emacs-lisp
+;; Ctrl only
+(use-package edger
+  :vc (:url "https://github.com/suderman/edger" :lisp-dir "emacs" :rev :newest)
+  :bind (("C-h" . edger-left)
+         ("C-j" . edger-down)
+         ("C-k" . edger-up)
+         ("C-l" . edger-right)))
+#+end_src
+
+#+begin_src emacs-lisp
+;; Alt only
+(use-package edger
+  :vc (:url "https://github.com/suderman/edger" :lisp-dir "emacs" :rev :newest)
+  :bind (("M-h" . edger-left)
+         ("M-j" . edger-down)
+         ("M-k" . edger-up)
+         ("M-l" . edger-right)))
+#+end_src
+
+These are your bindings, not package defaults. =edger-executable= overrides the bundled script if needed. A standalone terminal Emacs gets its pane identity from =HERDR_PANE_ID= or =TMUX_PANE=. If a graphical daemon serves terminal clients, pass the pane identity as frame parameters with =emacsclient --tty -F=. Use =edger-herdr-pane-id= and =edger-herdr-socket-path= for Herdr, or =edger-tmux-pane-id= and =edger-tmux-socket= for tmux. The socket values come from =$HERDR_SOCKET_PATH= and =$TMUX=, respectively. Graphical frames stay within Emacs.
+
+** Neovim
+
+Choose one lazy.nvim entry:
+
+#+begin_src lua
+-- Ctrl+Alt (default)
+{ "suderman/edger", opts = {} }
+
+-- Ctrl only: use this entry instead
+{ "suderman/edger", opts = { modifier = "C" } }
+
+-- Alt only: use this entry instead
+{ "suderman/edger", opts = { modifier = "M" } }
+#+end_src
+
+The plugin maps normal-mode =<C-M-h/j/k/l>=, =<C-h/j/k/l>=, or =<M-h/j/k/l>=, depending on your choice. It also creates =:EdgerLeft=, =:EdgerDown=, =:EdgerUp=, and =:EdgerRight=. Use =opts = { keymaps = false }= to bind those commands yourself, or set =opts.bin= to use a different executable. Without lazy.nvim, add this repository to =runtimepath= and call =require("edger").setup({ modifier = "C" })=, for example.
+
+** Herdr
+
+Install the plugin and add one set of bindings to =~/.config/herdr/config.toml=:
+
+#+begin_src sh
+herdr plugin install suderman/edger
+#+end_src
+
+The plugin actions forward Ctrl+Alt by default:
+
+#+begin_src toml
+[[keys.command]]
+key = "ctrl+alt+h"
+type = "plugin_action"
+command = "edger.left"
+
+[[keys.command]]
+key = "ctrl+alt+j"
+type = "plugin_action"
+command = "edger.down"
+
+[[keys.command]]
+key = "ctrl+alt+k"
+type = "plugin_action"
+command = "edger.up"
+
+[[keys.command]]
+key = "ctrl+alt+l"
+type = "plugin_action"
+command = "edger.right"
+#+end_src
+
+For Ctrl-only or Alt-only, use shell bindings instead. Replace =/absolute/path/to/edger/bin/edger= with the executable in your checkout or package; plugin actions cannot take a different forwarding key as an argument. Choose one set:
+
+#+begin_src toml
+# Ctrl only
+[[keys.command]]
+key = "ctrl+h"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger left"
+
+[[keys.command]]
+key = "ctrl+j"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger down"
+
+[[keys.command]]
+key = "ctrl+k"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger up"
+
+[[keys.command]]
+key = "ctrl+l"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger right"
+#+end_src
+
+#+begin_src toml
+# Alt only
+[[keys.command]]
+key = "alt+h"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=alt /absolute/path/to/edger/bin/edger left"
+
+[[keys.command]]
+key = "alt+j"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=alt /absolute/path/to/edger/bin/edger down"
+
+[[keys.command]]
+key = "alt+k"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=alt /absolute/path/to/edger/bin/edger up"
+
+[[keys.command]]
+key = "alt+l"
+type = "shell"
+command = "EDGER_KEY_MODIFIER=alt /absolute/path/to/edger/bin/edger right"
+#+end_src
+
+If Herdr already uses your chosen keys for direct pane focus, move those bindings to a prefix. For Herdr's Alt pane keys, put these values in your existing =[keys]= table:
+
+#+begin_src toml
+[keys]
+focus_pane_left = "prefix+h"
+focus_pane_down = "prefix+j"
+focus_pane_up = "prefix+k"
+focus_pane_right = "prefix+l"
+#+end_src
+
+Run =herdr server reload-config= after editing the bindings.
+
+** tmux
+
+With TPM, put one of these in =~/.tmux.conf=. Options must come before the plugin entry:
+
+#+begin_src tmux
+# Ctrl+Alt (default)
+set -g @plugin 'suderman/edger'
+#+end_src
+
+#+begin_src tmux
+# Ctrl only
+set -g @edger-key 'C'
+set -g @plugin 'suderman/edger'
+#+end_src
+
+#+begin_src tmux
+# Alt only
+set -g @edger-key 'M'
+set -g @plugin 'suderman/edger'
+#+end_src
+
+To cycle sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching affects the tmux client, not just its pane. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
+
+** Terminal keys and CLI
+
+Check that your terminal and multiplexer deliver the keys you picked. Traditional terminals can encode Ctrl+Alt as Escape followed by a control byte, and Ctrl+h may collide with Backspace. Inspect a key with Emacs =M-x describe-key RET= or check a Neovim mapping with =:verbose nmap <C-h>=, then try it through Herdr or tmux. In one tested setup, Herdr =pane send-keys ctrl+alt+l= reached terminal Emacs =C-M-l=; tmux 3.6a sends =C-M-l= as ESC followed by Ctrl-L. Neither check proves what every physical keyboard sends.
+
+The shared executable accepts =edger left|down|up|right= from a multiplexer binding and =edger cross left|down|up|right= from an editor at its window edge. You can pass an explicit forwarding key as the second argument, such as =edger left ctrl+h= for Herdr or =edger left C-h= for tmux. =EDGER_KEY_MODIFIER= changes the Herdr default; tmux bindings pass their exact key. =EDGER_BACKEND=, =HERDR_BIN_PATH=, and =TMUX_BIN_PATH= override backend or CLI selection.
+
+The script needs Bash and the active multiplexer CLI. Herdr also needs =jq=; tmux foreground detection uses =ps=. Edger adds no build step or daemon. Keep the editor integration, multiplexer plugin, and script on the same revision when updating. Run =tests/run.sh= for shell/Neovim checks and =emacs --batch -Q -L emacs -l emacs/edger.el -l tests/edger-test.el -f ert-run-tests-batch-and-exit= for Emacs checks.
