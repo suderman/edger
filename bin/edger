@@ -56,7 +56,10 @@ if [[ $backend == tmux && -z $tmux_pane ]]; then
   tmux_pane=$("$tmux_cmd" display-message -p '#{pane_id}')
 fi
 state_dir=${EDGER_STATE_DIR:-${XDG_RUNTIME_DIR:-$HOME/.cache}/edger}
-if [[ $backend == tmux ]]; then state_context=${TMUX:-}
+if [[ $backend == tmux ]]; then
+  # TMUX ends in server PID and session index; only the socket survives a session switch.
+  state_context=${TMUX:-}
+  state_context=${state_context%,*,*}
 else state_context=${HERDR_SOCKET_PATH:-}; fi
 state_key=$(printf '%s' "$backend:$state_context:${tmux_pane:-$herdr_pane}" | cksum)
 state_file=$state_dir/${state_key// /-}

@@ -274,6 +274,17 @@ EDGER_BACKEND=tmux TMUX_PANE=%3 EDGER_TEST_SESSION=\$3 press down
 EDGER_BACKEND=tmux TMUX_PANE=%3 EDGER_TEST_SESSION=\$3 press down
 assert_log 'new-session -d -P -F #{session_id} -c %1'
 reset_log
+# tmux changes TMUX's final session index on each switch; the client TTY stays fixed.
+EDGER_BACKEND=tmux TMUX_PANE=%1 TMUX='/tmp/edger-test,42,0' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$1 press down
+EDGER_BACKEND=tmux TMUX_PANE=%2 TMUX='/tmp/edger-test,42,1' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
+EDGER_BACKEND=tmux TMUX_PANE=%3 TMUX='/tmp/edger-test,42,2' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+EDGER_BACKEND=tmux TMUX_PANE=%3 TMUX='/tmp/edger-test,42,2' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+assert_absent 'new-session'
+clock=$((clock + 500000))
+EDGER_BACKEND=tmux TMUX_PANE=%3 TMUX='/tmp/edger-test,42,2' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+EDGER_BACKEND=tmux TMUX_PANE=%3 TMUX='/tmp/edger-test,42,2' EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+assert_log 'new-session -d -P -F #{session_id} -c %1'
+reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" resize left alt+shift+h
 assert_log 'pane send-keys p1 alt+shift+h'
 reset_log
