@@ -21,7 +21,7 @@ if [[ $operation == resize && $name != left && $name != right && $name != up && 
 [[ $# -le 2 ]] || usage
 shift_key=
 [[ $operation == resize ]] && shift_key=shift+
-key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$shift_key$letter}
+key=${2:-${EDGER_KEY_MODIFIER:-alt}+$shift_key$letter}
 if [[ $operation == navigate && $name != left && $name != right && $name != up && $name != down ]]; then operation=$name; fi
 dir=$name
 backend=${EDGER_BACKEND:-}

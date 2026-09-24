@@ -54,7 +54,7 @@ end
 
 function M.setup(opts)
   opts = opts or {}
-  local modifier = opts.modifier or "C-M"
+  local modifier = opts.modifier or "M"
   local actions = opts.actions or { horizontal = "u", vertical = "i", close = "w" }
   for letter, direction in pairs(directions) do
     local callback = function() navigate(direction, letter, opts) end

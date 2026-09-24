@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# TPM entry point. Set @edger-key to M for Alt-hjkl or @edger-mappings to off.
+# TPM entry point. Set @edger-key to C or C-M to change the modifier.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 modifier=$(tmux show-option -gqv @edger-key)
-modifier=${modifier:-C-M}
+modifier=${modifier:-M}
 [[ $(tmux show-option -gqv @edger-mappings) == off ]] && exit 0
 sessions=0
 [[ $(tmux show-option -gqv @edger-sessions) == on ]] && sessions=1

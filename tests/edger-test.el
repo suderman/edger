@@ -3,6 +3,23 @@
 (require 'cl-lib)
 (require 'edger)
 
+(ert-deftest edger-default-and-custom-keys ()
+  (unwind-protect
+      (progn
+        (should (eq (lookup-key edger-mode-map (kbd "M-h")) 'edger-left))
+        (should (eq (lookup-key edger-mode-map (kbd "M-H")) 'edger-resize-left))
+        (should (eq (lookup-key edger-mode-map (kbd "M-u")) 'edger-horizontal))
+        (should (eq (lookup-key edger-mode-map (kbd "M-i")) 'edger-vertical))
+        (should (eq (lookup-key edger-mode-map (kbd "M-w")) 'edger-close))
+        (edger-setup "C" "s" "v" "q")
+        (should (eq (lookup-key edger-mode-map (kbd "C-h")) 'edger-left))
+        (should (eq (lookup-key edger-mode-map (kbd "C-S-h")) 'edger-resize-left))
+        (should (eq (lookup-key edger-mode-map (kbd "C-s")) 'edger-horizontal))
+        (should-not (lookup-key edger-mode-map (kbd "M-u")))
+        (edger-setup "C-M")
+        (should (eq (lookup-key edger-mode-map (kbd "C-M-S-l")) 'edger-resize-right)))
+    (edger-setup)))
+
 (ert-deftest edger-local-then-cross ()
   (save-window-excursion
     (delete-other-windows)

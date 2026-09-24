@@ -60,6 +60,9 @@ assert_log 'pane send-keys p1 alt+h'
 assert_absent 'pane focus'
 reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" down
+assert_log 'pane send-keys p1 alt+j'
+reset_log
+EDGER_KEY_MODIFIER=ctrl+alt EDGER_TEST_PROCESS=/bin/nvim "$edger" down
 assert_log 'pane send-keys p1 ctrl+alt+j'
 reset_log
 EDGER_TEST_PROCESS=/bin/bash EDGER_TEST_MOVED=true "$edger" down
@@ -278,12 +281,14 @@ server="edger-test-$$"
 PATH=$system_path tmux -L "$server" -f /dev/null new-session -d -s edger-test
 socket=$(PATH=$system_path tmux -L "$server" display-message -p '#{socket_path}')
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
-PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger resize left C-M-H' >/dev/null
-PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M-w' >/dev/null
-if PATH=$system_path tmux -L "$server" list-keys -T root C-M-t >/dev/null 2>&1; then echo 'Removed tab binding present' >&2; exit 1; fi
+PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger resize left M-H' >/dev/null
+PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close M-w' >/dev/null
+if PATH=$system_path tmux -L "$server" list-keys -T root M-t >/dev/null 2>&1; then echo 'Removed tab binding present' >&2; exit 1; fi
+PATH=$system_path tmux -L "$server" set-option -g @edger-key C
 PATH=$system_path tmux -L "$server" set-option -g @edger-close-key q
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
-PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M-q' >/dev/null
+PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-q' >/dev/null
+PATH=$system_path tmux -L "$server" set-option -g @edger-key C-M
 PATH=$system_path tmux -L "$server" set-option -g @edger-sessions on
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_SESSIONS=1' >/dev/null

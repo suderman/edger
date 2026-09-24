@@ -7,8 +7,8 @@
 ;; URL: https://github.com/suderman/edger
 
 ;;; Commentary:
-;; Bind navigation and window commands in your own keymaps.  Terminal Emacs
-;; crosses into Herdr or tmux when no eligible Emacs window exists.
+;; `edger-mode' binds Alt navigation, resize, split, and close keys.
+;; Terminal Emacs crosses into Herdr or tmux at a window edge.
 
 ;;; Code:
 
@@ -106,6 +106,41 @@
 (defun edger-down () "Navigate down." (interactive) (edger--navigate 'down))
 (defun edger-up () "Navigate up." (interactive) (edger--navigate 'up))
 (defun edger-right () "Navigate right." (interactive) (edger--navigate 'right))
+
+(defvar edger-mode-map (make-sparse-keymap)
+  "Keymap for `edger-mode'.")
+
+;;;###autoload
+(define-minor-mode edger-mode
+  "Bind Edger navigation and window actions globally."
+  :global t
+  :keymap edger-mode-map)
+
+(defun edger-setup (&optional modifier horizontal vertical close)
+  "Bind Edger keys with MODIFIER and HORIZONTAL, VERTICAL, CLOSE letters.
+MODIFIER uses Emacs key syntax and defaults to \"M\" (Alt); \"C\" and
+\"C-M\" are also supported.  The action letters default to u, i, w."
+  (let ((modifier (or modifier "M")))
+    (unless (member modifier '("M" "C" "C-M"))
+      (user-error "Edger modifier must be M, C, or C-M"))
+    (setcdr edger-mode-map nil)
+    (dolist (binding '(("h" edger-left edger-resize-left)
+                       ("j" edger-down edger-resize-down)
+                       ("k" edger-up edger-resize-up)
+                       ("l" edger-right edger-resize-right)))
+      (keymap-set edger-mode-map (format "%s-%s" modifier (nth 0 binding)) (nth 1 binding))
+      (keymap-set edger-mode-map
+                  (if (equal modifier "M")
+                      (format "M-%s" (upcase (nth 0 binding)))
+                    (format "%s-S-%s" modifier (nth 0 binding)))
+                  (nth 2 binding)))
+    (dolist (binding (list (cons (or horizontal "u") #'edger-horizontal)
+                           (cons (or vertical "i") #'edger-vertical)
+                           (cons (or close "w") #'edger-close)))
+      (keymap-set edger-mode-map (format "%s-%s" modifier (car binding)) (cdr binding)))
+    (edger-mode 1)))
+
+(edger-setup)
 
 (provide 'edger)
 ;;; edger.el ends here
