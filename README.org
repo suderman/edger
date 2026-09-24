@@ -1,6 +1,6 @@
 * Edger
 
-Edger moves within splits first: Emacs or Neovim windows, then Herdr or tmux panes. If the current tab has splits on the navigation axis, press the same direction twice within 700 ms to leave it. The second press switches to the adjacent tab or workspace, or creates one at the far right or bottom. If there are no splits on that axis, one press leaves the tab and switches or creates immediately. Left/right moves through tabs (tmux windows); up/down moves through workspaces (tmux sessions when enabled). At the first tab or workspace, left/up stops without creating anything. A successful move or different direction clears pending confirmation. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
+Edger moves with one press through Emacs or Neovim windows, Herdr or tmux panes, then existing tabs and workspaces. Left/right moves through tabs (tmux windows); up/down moves through workspaces (tmux sessions when enabled). At the rightmost tab or bottommost workspace, a second same-direction press within 700 ms creates a new one. Left/up stops at the first tab or workspace without creating anything. A successful move or different direction clears pending creation. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
 
 | Key | Direction | Herdr pane edge    | tmux pane edge               |
 |-----+-----------+--------------------+------------------------------|
@@ -10,15 +10,12 @@ Edger moves within splits first: Emacs or Neovim windows, then Herdr or tmux pan
 | l   | right     | next tab           | next window                  |
 
 #+begin_src text
-With a vertical split, at the right edge:
-M-l  first press  -> stay put
-M-l  second press -> switch to the next tab, or create one at the far right
-
-Without a vertical split:
-M-l  switch or create on the first press
+M-l  at a pane edge   -> switch to the next tab, if one exists
+M-l  at the last tab -> stay put
+M-l  again           -> create a tab to the right
 #+end_src
 
-Tabs grow rightward; workspaces grow downward. =M-j= uses the same rule at the bottom. =M-h= at the first tab and =M-k= at the first workspace stop without a message. The example uses Alt; the default binding family below is Ctrl+Alt. Standalone editors without a multiplexer keep local-only navigation.
+Tabs grow rightward; workspaces grow downward. =M-j= uses the same creation rule at the bottom. =M-h= at the first tab and =M-k= at the first workspace stop without a message. The example uses Alt; the default binding family below is Ctrl+Alt. Standalone editors without a multiplexer keep local-only navigation.
 
 The default forwarded chord is Ctrl+Alt+h/j/k/l. Neovim and tmux map it by default; bind it yourself in Emacs and Herdr. Ctrl-only and Alt-only navigation examples follow. Choose one family across the layers. Edger does not control desktop windows.
 

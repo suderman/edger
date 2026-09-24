@@ -14,7 +14,6 @@
 
 (require 'windmove)
 (require 'tab-bar)
-(require 'cl-lib)
 
 (defgroup edger nil "Directional window and pane navigation." :group 'windows)
 
@@ -60,7 +59,7 @@
   (when (edger--pane-context) (edger--cross "clear")))
 
 (defun edger--navigate (direction)
-  "Navigate DIRECTION locally, then confirm a terminal multiplexer edge."
+  "Navigate DIRECTION locally, then cross a terminal multiplexer edge."
   (let ((neighbor (windmove-find-other-window direction)))
     (if (or (and neighbor
                  (or (not (window-minibuffer-p neighbor))
@@ -68,14 +67,7 @@
             (not (edger--pane-context)))
         (progn (windmove-do-window-select direction nil nil this-command)
                (edger--clear))
-      (let* ((axis (if (memq direction '(left right)) 0 1))
-             (position (nth axis (window-edges)))
-             (split (cl-some (lambda (window)
-                               (/= position (nth axis (window-edges window))))
-                             (window-list nil 'nomini))))
-        (if split
-            (edger--cross (symbol-name direction) "split")
-          (edger--cross (symbol-name direction)))))))
+      (edger--cross (symbol-name direction)))))
 
 (defun edger--resize (direction)
   "Move a window divider in DIRECTION, or resize the multiplexer split."

@@ -24,8 +24,6 @@ shift_key=
 key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$shift_key$letter}
 if [[ $operation == navigate && $name != left && $name != right && $name != up && $name != down ]]; then operation=$name; fi
 dir=$name
-editor_split=
-[[ $mode == cross && $operation == navigate ]] && editor_split=${2:-}
 backend=${EDGER_BACKEND:-}
 if [[ -z $backend ]]; then
   if [[ -n ${TMUX-} ]]; then backend=tmux
@@ -71,7 +69,7 @@ state_save() {
 state_load() {
   phase='' armed_dir='' armed_at='' last_press=''
   if [[ -f $state_file ]]; then read -r phase armed_dir armed_at last_press < "$state_file" || :; fi
-  if [[ $phase != split || $armed_dir != "$dir" ||
+  if [[ $phase != create || $armed_dir != "$dir" ||
         ! $armed_at =~ ^[0-9]+$ || ! $last_press =~ ^[0-9]+$ ]] ||
      (( now < armed_at || now < last_press || now - armed_at > boundary_timeout * 1000 )); then
     state_clear
@@ -141,13 +139,6 @@ herdr_outer_create() {
     "$herdr" workspace create --focus >/dev/null
   fi
 }
-herdr_axis_split() {
-  local axis=x
-  [[ $dir == up || $dir == down ]] && axis=y
-  "$herdr" pane layout --pane "$herdr_pane" |
-    jq -e --arg axis "$axis" '[.result.layout.panes[].rect[$axis]] | unique | length > 1' >/dev/null
-}
-
 tmux_run() { "$tmux_cmd" "$@"; }
 tmux_editor() {
   local tty name
@@ -213,13 +204,6 @@ tmux_outer_create() {
     tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$session"
   fi
 }
-tmux_axis_split() {
-  local axis=1
-  [[ $dir == up || $dir == down ]] && axis=2
-  tmux_run list-panes -t "$tmux_pane" -F '#{pane_left} #{pane_top}' |
-    awk -v axis="$axis" 'NR==1 { first=$axis } $axis!=first { found=1 } END { exit !found }'
-}
-
 outer_enabled() {
   [[ $backend == herdr ]] || tmux_outer_enabled
 }
@@ -232,25 +216,24 @@ outer_focus() {
 outer_create() {
   if [[ $backend == herdr ]]; then herdr_outer_create; else tmux_outer_create; fi
 }
-split_ambiguity() {
-  [[ $editor_split == split ]] || {
-    if [[ $backend == herdr ]]; then herdr_axis_split; else tmux_axis_split; fi
-  }
-}
 boundary_edge() {
   local target
   if ! outer_enabled; then state_clear; return; fi
-  if split_ambiguity; then
+  target=$(outer_neighbor)
+  if [[ -n $target ]]; then
+    state_clear
+    outer_focus "$target"
+  elif [[ $step == 1 ]]; then
     now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
     [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
     state_load
-    if [[ -z $phase ]]; then state_save split; return; fi
+    if [[ -z $phase ]]; then state_save create; return; fi
     if state_repeating; then return; fi
+    state_clear
+    outer_create
+  else
+    state_clear
   fi
-  state_clear
-  target=$(outer_neighbor)
-  if [[ -n $target ]]; then outer_focus "$target"
-  elif [[ $step == 1 ]]; then outer_create; fi
 }
 
 tmux_cross() {
