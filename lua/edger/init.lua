@@ -18,9 +18,20 @@ end
 
 local function navigate(direction, letter, opts)
   local before = vim.api.nvim_get_current_win()
+  local axis = (letter == "h" or letter == "l") and 2 or 1
+  local position = vim.api.nvim_win_get_position(before)[axis]
+  local split = false
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_get_config(win).relative == "" and vim.api.nvim_win_get_position(win)[axis] ~= position then
+      split = true
+      break
+    end
+  end
   vim.cmd.wincmd(letter)
   if vim.api.nvim_get_current_win() ~= before then
     cross(opts, "clear")
+  elseif split then
+    cross(opts, direction, "split")
   else
     cross(opts, direction)
   end

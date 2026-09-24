@@ -14,6 +14,16 @@ case "$1 $2" in
     printf '{"result":{"process_info":{"foreground_processes":[{"name":".emacsclient-wr","argv":["%s"]}]}}}\n' "${EDGER_TEST_PROCESS:-/bin/bash}" ;;
   'pane focus') printf '{"result":{"focus":{"changed":%s}}}\n' "${EDGER_TEST_MOVED:-false}" ;;
   'pane current') printf '{"result":{"pane":{"workspace_id":"%s","tab_id":"%s"}}}\n' "${EDGER_TEST_WORKSPACE:-w1}" "${EDGER_TEST_TAB:-t2}" ;;
+  'pane layout')
+    case ${EDGER_TEST_AXIS_SPLIT:-both} in
+      horizontal) x=0; y=20 ;; vertical) x=40; y=0 ;; both) x=40; y=20 ;;
+      *) x=; y= ;;
+    esac
+    if [[ -n $x ]]; then
+      printf '{"result":{"layout":{"panes":[{"rect":{"x":0,"y":0}},{"rect":{"x":%s,"y":%s}}]}}}\n' "$x" "$y"
+    else
+      printf '{"result":{"layout":{"panes":[{"rect":{"x":0,"y":0}}]}}}\n'
+    fi ;;
   'tab list') printf '{"result":{"tabs":[{"tab_id":"t1","number":1},{"tab_id":"t2","number":2},{"tab_id":"t3","number":3}]}}\n' ;;
   'workspace list') if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '{"result":{"workspaces":[{"workspace_id":"w1"}]}}\n'; else printf '{"result":{"workspaces":[{"workspace_id":"w1","number":1},{"workspace_id":"w2","number":2},{"workspace_id":"w3","number":3}]}}\n'; fi ;;
   'workspace get') printf '{"result":{"workspace":{"pane_count":%s}}}\n' "${EDGER_TEST_PANES:-2}" ;;
@@ -33,6 +43,11 @@ case "$1" in
       '#{session_windows}'|'#{window_panes}') echo "${EDGER_TEST_PANES:-2}" ;;
       *) echo %1 ;;
     esac ;;
+  list-panes)
+    case ${EDGER_TEST_AXIS_SPLIT:-both} in
+      horizontal) printf '0 0\n0 20\n' ;; vertical) printf '0 0\n40 0\n' ;;
+      both) printf '0 0\n40 20\n' ;; *) printf '0 0\n' ;;
+    esac ;;
   list-windows) printf '@1\n@2\n@3\n' ;;
   list-sessions) if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '$1\n'; else printf '$1\n$2\n$3\n'; fi ;;
 esac
@@ -49,7 +64,7 @@ edger="$root/bin/edger"
 assert_log() { grep -Fx -- "$1" "$EDGER_TEST_LOG" >/dev/null || { echo "Missing: $1" >&2; cat "$EDGER_TEST_LOG" >&2; exit 1; }; }
 assert_absent() { if grep -q -- "$1" "$EDGER_TEST_LOG"; then echo "Unexpected: $1" >&2; exit 1; fi; }
 reset_log() { : > "$EDGER_TEST_LOG"; rm -rf "$EDGER_STATE_DIR"; clock=1000000000; }
-press() { EDGER_TEST_NOW_US=$clock "$edger" cross "$1"; clock=$((clock + 200000)); }
+press() { EDGER_TEST_NOW_US=$clock "$edger" cross "$@"; clock=$((clock + 200000)); }
 
 if "$edger" diagonal 2>/dev/null; then echo 'invalid direction accepted' >&2; exit 1; fi
 reset_log
@@ -66,7 +81,7 @@ assert_absent 'workspace list'
 reset_log
 press right
 assert_log 'pane focus --direction right --pane p1'
-assert_log 'notification show → split edge --position top-right --sound none'
+assert_absent 'notification show'
 assert_absent 'tab focus'
 press right
 assert_log 'tab focus t3'
@@ -91,12 +106,10 @@ assert_log 'workspace focus w3'
 reset_log
 EDGER_TEST_TAB=t1 press left
 EDGER_TEST_TAB=t1 press left
-EDGER_TEST_TAB=t1 press left
 assert_absent 'tab create'
 assert_absent 'tab focus'
-assert_log 'notification show ← outer edge --position top-left --sound none'
+assert_absent 'notification show'
 reset_log
-EDGER_TEST_WORKSPACE=w1 press up
 EDGER_TEST_WORKSPACE=w1 press up
 EDGER_TEST_WORKSPACE=w1 press up
 assert_absent 'workspace create'
@@ -105,28 +118,46 @@ reset_log
 EDGER_TEST_TAB=t3 press right
 assert_absent 'tab create'
 EDGER_TEST_TAB=t3 press right
-assert_log 'notification show → outer edge --position top-right --sound none'
-assert_absent 'tab create'
-EDGER_TEST_TAB=t3 press right
 assert_log 'tab create --workspace w1 --focus'
+assert_absent 'notification show'
 reset_log
-EDGER_TEST_WORKSPACE=w3 press down
 EDGER_TEST_WORKSPACE=w3 press down
 assert_absent 'workspace create'
 EDGER_TEST_WORKSPACE=w3 press down
 assert_log 'workspace create --focus'
+reset_log
+EDGER_TEST_AXIS_SPLIT=0 press right
+assert_log 'tab focus t3'
+assert_absent 'notification show'
+reset_log
+EDGER_TEST_AXIS_SPLIT=horizontal press right
+assert_log 'tab focus t3'
+reset_log
+EDGER_TEST_AXIS_SPLIT=vertical press down
+assert_log 'workspace focus w2'
+reset_log
+EDGER_TEST_AXIS_SPLIT=0 EDGER_TEST_TAB=t3 press right
+assert_log 'tab create --workspace w1 --focus'
+reset_log
+EDGER_TEST_AXIS_SPLIT=0 EDGER_TEST_WORKSPACE=w3 press down
+assert_log 'workspace create --focus'
+reset_log
+EDGER_TEST_AXIS_SPLIT=0 press right split
+assert_absent 'tab focus'
+EDGER_TEST_AXIS_SPLIT=0 press right split
+assert_log 'tab focus t3'
 reset_log
 press right
 clock=$((clock + 800000))
 press right
 assert_absent 'tab focus'
 reset_log
-EDGER_BOUNDARY_TIMEOUT_MS=150 EDGER_FLASH_MS=10 press right
-EDGER_BOUNDARY_TIMEOUT_MS=150 EDGER_FLASH_MS=10 press right
+EDGER_BOUNDARY_TIMEOUT_MS=150 press right
+EDGER_BOUNDARY_TIMEOUT_MS=150 press right
 assert_absent 'tab focus'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_FLASH_MS=10 press right
-assert_log 'display-message -d 10 -t %1 → split edge'
+EDGER_BACKEND=tmux TMUX_PANE=%1 press right
+assert_absent 'display-message -d'
 reset_log
 press right
 press down
@@ -140,7 +171,7 @@ clock=$((clock - 170000))
 EDGER_TEST_TAB=t3 press right
 clock=$((clock - 170000))
 EDGER_TEST_TAB=t3 press right
-assert_absent 'tab create'
+[[ $(grep -Fc 'tab create' "$EDGER_TEST_LOG") == 1 ]] || { echo 'Repeat created another tab' >&2; exit 1; }
 reset_log
 press right
 EDGER_TEST_MOVED=true press right
@@ -184,8 +215,18 @@ assert_absent 'select-window'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
-assert_absent 'new-window'
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
+assert_log 'new-window -a -t @3 -c #{pane_current_path}'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_AXIS_SPLIT=0 press right
+assert_log 'select-window -t @2'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_AXIS_SPLIT=horizontal press right
+assert_log 'select-window -t @2'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_AXIS_SPLIT=vertical EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
+assert_log "switch-client -c /dev/tty -t \$2"
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_AXIS_SPLIT=0 EDGER_TEST_WINDOW=@3 press right
 assert_log 'new-window -a -t @3 -c #{pane_current_path}'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross up
@@ -210,8 +251,12 @@ assert_log "switch-client -c /dev/tty -t \$3"
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
-assert_absent 'new-session'
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+assert_log 'new-session -d -P -F #{session_id} -c %1'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_AXIS_SPLIT=0 press down
+assert_log "switch-client -c /dev/tty -t \$2"
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_AXIS_SPLIT=0 EDGER_TEST_SESSION=\$3 press down
 assert_log 'new-session -d -P -F #{session_id} -c %1'
 reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" resize left alt+shift+h
@@ -295,5 +340,8 @@ PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M
 PATH=$system_path tmux -L "$server" set-option -g @edger-close-key q
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M-q' >/dev/null
+PATH=$system_path tmux -L "$server" set-option -g @edger-sessions on
+PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
+PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_SESSIONS=1' >/dev/null
 PATH=$system_path tmux -L "$server" kill-server
 echo 'edger routing, Neovim, and tmux checks passed'

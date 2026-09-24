@@ -14,6 +14,7 @@
 
 (require 'windmove)
 (require 'tab-bar)
+(require 'cl-lib)
 
 (defgroup edger nil "Directional window and pane navigation." :group 'windows)
 
@@ -67,7 +68,14 @@
             (not (edger--pane-context)))
         (progn (windmove-do-window-select direction nil nil this-command)
                (edger--clear))
-      (edger--cross (symbol-name direction)))))
+      (let* ((axis (if (memq direction '(left right)) 0 1))
+             (position (nth axis (window-edges)))
+             (split (cl-some (lambda (window)
+                               (/= position (nth axis (window-edges window))))
+                             (window-list nil 'nomini))))
+        (if split
+            (edger--cross (symbol-name direction) "split")
+          (edger--cross (symbol-name direction)))))))
 
 (defun edger--resize (direction)
   "Move a window divider in DIRECTION, or resize the multiplexer split."

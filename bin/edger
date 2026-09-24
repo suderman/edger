@@ -24,6 +24,8 @@ shift_key=
 key=${2:-${EDGER_KEY_MODIFIER:-ctrl+alt}+$shift_key$letter}
 if [[ $operation == navigate && $name != left && $name != right && $name != up && $name != down ]]; then operation=$name; fi
 dir=$name
+editor_split=
+[[ $mode == cross && $operation == navigate ]] && editor_split=${2:-}
 backend=${EDGER_BACKEND:-}
 if [[ -z $backend ]]; then
   if [[ -n ${TMUX-} ]]; then backend=tmux
@@ -47,9 +49,8 @@ tmux_pane=${TMUX_PANE:-}
 
 # The shell command exits between presses, so keep one short-lived state per pane.
 boundary_timeout=${EDGER_BOUNDARY_TIMEOUT_MS:-700}
-flash_ms=${EDGER_FLASH_MS:-150}
-[[ $boundary_timeout =~ ^[1-9][0-9]*$ && $flash_ms =~ ^[1-9][0-9]*$ ]] || {
-  echo 'edger: boundary timeout and flash duration must be positive milliseconds' >&2; exit 2;
+[[ $boundary_timeout =~ ^[1-9][0-9]*$ ]] || {
+  echo 'edger: boundary timeout must be positive milliseconds' >&2; exit 2;
 }
 if [[ $backend == tmux && -z $tmux_pane ]]; then
   command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
@@ -70,7 +71,7 @@ state_save() {
 state_load() {
   phase='' armed_dir='' armed_at='' last_press=''
   if [[ -f $state_file ]]; then read -r phase armed_dir armed_at last_press < "$state_file" || :; fi
-  if [[ ( $phase != split && $phase != outer ) || $armed_dir != "$dir" ||
+  if [[ $phase != split || $armed_dir != "$dir" ||
         ! $armed_at =~ ^[0-9]+$ || ! $last_press =~ ^[0-9]+$ ]] ||
      (( now < armed_at || now < last_press || now - armed_at > boundary_timeout * 1000 )); then
     state_clear
@@ -140,11 +141,11 @@ herdr_outer_create() {
     "$herdr" workspace create --focus >/dev/null
   fi
 }
-herdr_flash() {
-  local position=top-left
-  [[ $dir == right ]] && position=top-right
-  [[ $dir == down ]] && position=bottom-left
-  "$herdr" notification show "${flash_arrow} ${1} edge" --position "$position" --sound none >/dev/null 2>&1 || :
+herdr_axis_split() {
+  local axis=x
+  [[ $dir == up || $dir == down ]] && axis=y
+  "$herdr" pane layout --pane "$herdr_pane" |
+    jq -e --arg axis "$axis" '[.result.layout.panes[].rect[$axis]] | unique | length > 1' >/dev/null
 }
 
 tmux_run() { "$tmux_cmd" "$@"; }
@@ -212,32 +213,11 @@ tmux_outer_create() {
     tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$session"
   fi
 }
-tmux_flash() {
-  local window previous token delay style
-  window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
-  style=fg=colour208
-  [[ $1 == outer ]] && style=fg=colour196
-  previous=$(tmux_run show-option -wqv -t "$window" @edger-flash-previous 2>/dev/null || :)
-  if [[ -z $(tmux_run show-option -wqv -t "$window" @edger-flash-token 2>/dev/null || :) ]]; then
-    previous=$(tmux_run show-option -wqv -t "$window" pane-active-border-style 2>/dev/null || :)
-    tmux_run set-option -wq -t "$window" @edger-flash-previous "$previous"
-  fi
-  token="$now-$RANDOM"
-  tmux_run set-option -wq -t "$window" @edger-flash-token "$token"
-  tmux_run set-option -wq -t "$window" pane-active-border-style "$style"
-  tmux_run display-message -d "$flash_ms" -t "$tmux_pane" "$flash_arrow $1 edge" >/dev/null 2>&1 || :
-  printf -v delay '%d.%03d' "$((flash_ms / 1000))" "$((flash_ms % 1000))"
-  (
-    sleep "$delay"
-    if [[ $(tmux_run show-option -wqv -t "$window" @edger-flash-token 2>/dev/null || :) == "$token" ]]; then
-      if [[ $(tmux_run show-option -wqv -t "$window" pane-active-border-style 2>/dev/null || :) == "$style" ]]; then
-        if [[ -n $previous ]]; then tmux_run set-option -wq -t "$window" pane-active-border-style "$previous"
-        else tmux_run set-option -wuq -t "$window" pane-active-border-style; fi
-      fi
-      tmux_run set-option -wuq -t "$window" @edger-flash-token
-      tmux_run set-option -wuq -t "$window" @edger-flash-previous
-    fi
-  ) >/dev/null 2>&1 &
+tmux_axis_split() {
+  local axis=1
+  [[ $dir == up || $dir == down ]] && axis=2
+  tmux_run list-panes -t "$tmux_pane" -F '#{pane_left} #{pane_top}' |
+    awk -v axis="$axis" 'NR==1 { first=$axis } $axis!=first { found=1 } END { exit !found }'
 }
 
 outer_enabled() {
@@ -252,38 +232,25 @@ outer_focus() {
 outer_create() {
   if [[ $backend == herdr ]]; then herdr_outer_create; else tmux_outer_create; fi
 }
-boundary_flash() {
-  case $dir in
-    left) flash_arrow='←' ;; right) flash_arrow='→' ;;
-    up) flash_arrow='↑' ;; down) flash_arrow='↓' ;;
-  esac
-  if [[ $backend == herdr ]]; then herdr_flash "$1"; else tmux_flash "$1" || :; fi
+split_ambiguity() {
+  [[ $editor_split == split ]] || {
+    if [[ $backend == herdr ]]; then herdr_axis_split; else tmux_axis_split; fi
+  }
 }
 boundary_edge() {
   local target
-  now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
-  [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
-  state_load
-  if [[ -z $phase ]] || ! outer_enabled; then
-    state_save split
-    boundary_flash split
-    return
+  if ! outer_enabled; then state_clear; return; fi
+  if split_ambiguity; then
+    now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
+    [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
+    state_load
+    if [[ -z $phase ]]; then state_save split; return; fi
+    if state_repeating; then return; fi
   fi
-  if state_repeating; then return; fi
+  state_clear
   target=$(outer_neighbor)
-  if [[ -n $target ]]; then
-    outer_focus "$target"
-    state_clear
-  elif [[ $phase == split ]]; then
-    if [[ $step == 1 ]]; then state_save outer; else state_clear; fi
-    boundary_flash outer
-  elif [[ $step == 1 ]]; then
-    outer_create
-    state_clear
-  else
-    state_clear
-    boundary_flash outer
-  fi
+  if [[ -n $target ]]; then outer_focus "$target"
+  elif [[ $step == 1 ]]; then outer_create; fi
 }
 
 tmux_cross() {
