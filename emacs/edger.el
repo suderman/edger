@@ -93,14 +93,12 @@
   (select-window (split-window-below)) (edger--clear))
 (defun edger-vertical () "Split right and select the new window." (interactive)
   (select-window (split-window-right)) (edger--clear))
-(defun edger-close () "Close a window, or its enclosing multiplexer pane."
+(defun edger-close () "Close a window, then an editor tab, then its multiplexer pane."
   (interactive)
-  (if (one-window-p t)
-      (if (edger--pane-context)
-          (edger--cross "close")
-        (when (> (length (tab-bar-tabs)) 1) (tab-bar-close-tab)))
-    (delete-window)
-    (edger--clear)))
+  (cond
+   ((not (one-window-p t)) (delete-window) (edger--clear))
+   ((> (length (tab-bar-tabs)) 1) (tab-bar-close-tab) (edger--clear))
+   ((edger--pane-context) (edger--cross "close"))))
 
 (defun edger-left () "Navigate left." (interactive) (edger--navigate 'left))
 (defun edger-down () "Navigate down." (interactive) (edger--navigate 'down))

@@ -17,7 +17,7 @@ M-l  again           -> create a tab to the right
 
 Tabs grow rightward; workspaces grow downward. =M-j= uses the same creation rule at the bottom. =M-h= at the first tab and =M-k= at the first workspace stop without a message. Standalone editors without a multiplexer keep local-only navigation. Edger does not control desktop windows.
 
-Alt+h/j/k/l navigates. Alt+Shift+h/j/k/l resizes a divider on the relevant axis, starting in the editor and falling back to the multiplexer. Without a matching split, resizing does nothing. Alt+u splits below, Alt+i splits right, and Alt+w closes a window. Closing the last editor window closes its pane; closing the last pane closes its tab and, where applicable, its workspace or session. Edger leaves the last workspace or session intact. Use Ctrl or Ctrl+Alt instead of Alt if your terminal delivers those keys reliably; keep one modifier across all layers.
+Alt+h/j/k/l navigates. Alt+Shift+h/j/k/l resizes a divider on the relevant axis, starting in the editor and falling back to the multiplexer. Without a matching split, resizing does nothing. Alt+u splits below and Alt+i splits right. Alt+w closes the current editor window while multiple windows remain, then the current editor tab while multiple tabs remain. With one window in one tab, it closes the multiplexer pane. Closing the last pane closes its tab and, where applicable, its workspace or session. Edger leaves the last workspace or session intact. Use Ctrl or Ctrl+Alt instead of Alt if your terminal delivers those keys reliably; keep one modifier across all layers.
 
 ** Emacs
 
@@ -70,192 +70,11 @@ The plugin maps normal-mode keys using the chosen modifier. Shifted direction ke
 
 ** Herdr
 
-Install the plugin and add one set of bindings to =~/.config/herdr/config.toml=:
+Install the plugin, then put this Alt keymap in =~/.config/herdr/config.toml=:
 
 #+begin_src sh
 herdr plugin install suderman/edger
 #+end_src
-
-The plugin actions forward Alt by default. This complete Alt binding set uses all eleven actions:
-
-#+begin_src toml
-[[keys.command]]
-key = "alt+h"
-type = "plugin_action"
-command = "edger.left"
-
-[[keys.command]]
-key = "alt+j"
-type = "plugin_action"
-command = "edger.down"
-
-[[keys.command]]
-key = "alt+k"
-type = "plugin_action"
-command = "edger.up"
-
-[[keys.command]]
-key = "alt+l"
-type = "plugin_action"
-command = "edger.right"
-
-[[keys.command]]
-key = "alt+shift+h"
-type = "plugin_action"
-command = "edger.resize-left"
-
-[[keys.command]]
-key = "alt+shift+j"
-type = "plugin_action"
-command = "edger.resize-down"
-
-[[keys.command]]
-key = "alt+shift+k"
-type = "plugin_action"
-command = "edger.resize-up"
-
-[[keys.command]]
-key = "alt+shift+l"
-type = "plugin_action"
-command = "edger.resize-right"
-
-[[keys.command]]
-key = "alt+u"
-type = "plugin_action"
-command = "edger.horizontal"
-
-[[keys.command]]
-key = "alt+i"
-type = "plugin_action"
-command = "edger.vertical"
-
-[[keys.command]]
-key = "alt+w"
-type = "plugin_action"
-command = "edger.close"
-#+end_src
-
-Use Herdr's built-in =split_horizontal= and =split_vertical= keys with =prefix+u= and =prefix+i= to split a Herdr pane even while an editor is focused. Plugin actions forward Alt and cannot take a different forwarding key. For Ctrl, use shell bindings with =EDGER_KEY_MODIFIER=ctrl= (replace the executable path):
-
-#+begin_src toml
-[[keys.command]]
-key = "ctrl+h"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger left"
-
-[[keys.command]]
-key = "ctrl+j"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger down"
-
-[[keys.command]]
-key = "ctrl+k"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger up"
-
-[[keys.command]]
-key = "ctrl+l"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger right"
-
-[[keys.command]]
-key = "ctrl+shift+h"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger resize left"
-
-[[keys.command]]
-key = "ctrl+shift+j"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger resize down"
-
-[[keys.command]]
-key = "ctrl+shift+k"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger resize up"
-
-[[keys.command]]
-key = "ctrl+shift+l"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger resize right"
-
-[[keys.command]]
-key = "ctrl+s"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger horizontal ctrl+s"
-
-[[keys.command]]
-key = "ctrl+v"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger vertical ctrl+v"
-
-[[keys.command]]
-key = "ctrl+q"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl /absolute/path/to/edger/bin/edger close ctrl+q"
-#+end_src
-
-That example changes action letters to s/v/q. For Ctrl+Alt with the same custom action letters, use this set instead:
-
-#+begin_src toml
-[[keys.command]]
-key = "ctrl+alt+h"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger left"
-
-[[keys.command]]
-key = "ctrl+alt+j"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger down"
-
-[[keys.command]]
-key = "ctrl+alt+k"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger up"
-
-[[keys.command]]
-key = "ctrl+alt+l"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger right"
-
-[[keys.command]]
-key = "ctrl+alt+shift+h"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger resize left"
-
-[[keys.command]]
-key = "ctrl+alt+shift+j"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger resize down"
-
-[[keys.command]]
-key = "ctrl+alt+shift+k"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger resize up"
-
-[[keys.command]]
-key = "ctrl+alt+shift+l"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger resize right"
-
-[[keys.command]]
-key = "ctrl+alt+s"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger horizontal ctrl+alt+s"
-
-[[keys.command]]
-key = "ctrl+alt+v"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger vertical ctrl+alt+v"
-
-[[keys.command]]
-key = "ctrl+alt+q"
-type = "shell"
-command = "EDGER_KEY_MODIFIER=ctrl+alt /absolute/path/to/edger/bin/edger close ctrl+alt+q"
-#+end_src
-
-The CLI's second argument on action bindings matters: it sends the chosen letter into a focused editor. With default u/i/w, omit that argument and just set =EDGER_KEY_MODIFIER=ctrl= or =ctrl+alt=. With other letters, bind the same letters in Emacs or Neovim. Herdr key syntax for Ctrl+Shift may depend on the terminal.
-
-If Herdr already uses your chosen keys for direct pane focus, move those bindings to a prefix. For Herdr's Alt pane keys, put these values in your existing =[keys]= table:
 
 #+begin_src toml
 [keys]
@@ -263,9 +82,70 @@ focus_pane_left = "prefix+h"
 focus_pane_down = "prefix+j"
 focus_pane_up = "prefix+k"
 focus_pane_right = "prefix+l"
+split_horizontal = "prefix+u"
+split_vertical = "prefix+i"
+command = [
+  { key = "alt+h", type = "plugin_action", command = "edger.left" },
+  { key = "alt+j", type = "plugin_action", command = "edger.down" },
+  { key = "alt+k", type = "plugin_action", command = "edger.up" },
+  { key = "alt+l", type = "plugin_action", command = "edger.right" },
+  { key = "alt+shift+h", type = "plugin_action", command = "edger.resize-left" },
+  { key = "alt+shift+j", type = "plugin_action", command = "edger.resize-down" },
+  { key = "alt+shift+k", type = "plugin_action", command = "edger.resize-up" },
+  { key = "alt+shift+l", type = "plugin_action", command = "edger.resize-right" },
+  { key = "alt+u", type = "plugin_action", command = "edger.horizontal" },
+  { key = "alt+i", type = "plugin_action", command = "edger.vertical" },
+  { key = "alt+w", type = "plugin_action", command = "edger.close" },
+]
 #+end_src
 
-Run =herdr server reload-config= after editing the bindings. Edger does not display boundary notices. Herdr does not expose a temporary one-sided pane-border color through its CLI.
+The prefix keys keep direct pane movement and splits available when an editor has focus. Herdr does not let a plugin register a keymap; its config binds each action separately. To configure the modifier and action letters in Nix, generate the eleven shell bindings as in the personal Herdr module:
+
+#+begin_src nix
+{lib, ...}: let
+  edger = "/absolute/path/to/edger/bin/edger";
+  modifier = "alt"; # or "ctrl", "ctrl+alt"
+  binds.direction = {
+    left = "h";
+    down = "j";
+    up = "k";
+    right = "l";
+  };
+  binds.action = {
+    horizontal = "u";
+    vertical = "i";
+    close = "w";
+  };
+in {
+  programs.herdr.settings.keys.command =
+    lib.mapAttrsToList (direction: letter: {
+      key = "${modifier}+${letter}";
+      type = "shell";
+      command = "${edger} ${direction} ${modifier}+${letter}";
+    }) binds.direction
+    ++ lib.mapAttrsToList (direction: letter: {
+      key = "${modifier}+shift+${letter}";
+      type = "shell";
+      command = "${edger} resize ${direction} ${modifier}+shift+${letter}";
+    }) binds.direction
+    ++ lib.mapAttrsToList (action: letter: {
+      key = "${modifier}+${letter}";
+      type = "shell";
+      command = "${edger} ${action} ${modifier}+${letter}";
+    }) binds.action;
+}
+#+end_src
+
+The Nix example follows the personal Herdr module and renders all eleven bindings. Change =modifier= and =binds.action= to match the other integrations, and set =edger= to the executable in your checkout or package. It calls the CLI directly, so it does not require installing the Herdr plugin. The final =${key}= in each command forwards the actual chord into a focused editor. In plain TOML, replace the Alt =command= array with your own eleven shell entries when changing keys. For example, one entry in that array would be:
+
+#+begin_src toml
+[keys]
+command = [
+  { key = "ctrl+alt+s", type = "shell", command = "/absolute/path/to/edger/bin/edger horizontal ctrl+alt+s" },
+]
+#+end_src
+
+Do not add another =command= array alongside the Alt one. Bind the same custom action letters in Emacs or Neovim. Ctrl+Shift key delivery depends on the terminal. Run =herdr server reload-config= after editing =config.toml=.
 
 ** tmux
 
@@ -291,12 +171,12 @@ set -g @edger-close-key 'q'
 set -g @plugin 'suderman/edger'
 #+end_src
 
-The plugin also maps shifted direction keys for resizing and =u/i/w= for split and close actions. Bind =prefix+u= to =split-window= and =prefix+i= to =split-window -h= to split a tmux pane even while an editor is focused. Override action letters with =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Alt+q by default. To switch sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching and bottom-edge session creation affect the tmux client, not just its pane. Edger does not change border styles or show boundary messages. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
+The plugin also maps shifted direction keys for resizing and =u/i/w= for split and close actions. Bind =prefix+u= to =split-window= and =prefix+i= to =split-window -h= to split a tmux pane even while an editor is focused. Override action letters with =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Alt+q by default. Up/down switches tmux sessions at a pane edge by default. Two down presses at the bottom create a new session. Session switching and creation affect the tmux client, not just its pane. Edger does not change border styles or show boundary messages. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
 
 ** Terminal keys and CLI
 
 Check that your terminal and multiplexer deliver the keys you picked. Traditional terminals can encode Ctrl+Alt as Escape followed by a control byte; Ctrl+h may collide with Backspace, and Ctrl+s may pause terminal output. Inspect a key with Emacs =M-x describe-key RET= or check a Neovim mapping with =:verbose nmap <C-h>=, then try it through Herdr or tmux. In one tested setup, Herdr =pane send-keys ctrl+alt+l= reached terminal Emacs =C-M-l=; tmux 3.6a sends =C-M-l= as ESC followed by Ctrl-L. Neither check proves what every physical keyboard sends.
 
-The shared executable accepts =edger left|down|up|right=, =edger resize left|down|up|right=, and =edger horizontal|vertical|close= from multiplexer bindings. Editors invoke the matching =edger cross ...= operation when needed. You can pass an explicit forwarding key as the last argument, such as =edger left ctrl+h= for Herdr or =edger resize left M-H= for tmux. =EDGER_KEY_MODIFIER= changes the Herdr default; tmux bindings pass their exact key. =EDGER_BACKEND=, =HERDR_BIN_PATH=, and =TMUX_BIN_PATH= override backend or CLI selection. Set =EDGER_BOUNDARY_TIMEOUT_MS= (default 700) to change how long a confirmation stays armed. Edger keeps short-lived state in =${XDG_RUNTIME_DIR:-$HOME/.cache}/edger=, overridable with =EDGER_STATE_DIR=. Terminal protocols usually do not report key release. Edger ignores presses less than 120 ms apart while armed to reduce accidental creation on key repeat, but cannot guarantee whether a physical key was held. Editor-initiated tmux session switching reads =@edger-sessions= from tmux and resolves the client for its pane; it does not need the tmux key binding's environment.
+The shared executable accepts =edger left|down|up|right=, =edger resize left|down|up|right=, and =edger horizontal|vertical|close= from multiplexer bindings. Editors invoke the matching =edger cross ...= operation when needed. You can pass an explicit forwarding key as the last argument, such as =edger left ctrl+h= for Herdr or =edger resize left M-H= for tmux. =EDGER_KEY_MODIFIER= changes the Herdr default; tmux bindings pass their exact key. =EDGER_BACKEND=, =HERDR_BIN_PATH=, and =TMUX_BIN_PATH= override backend or CLI selection. Set =EDGER_BOUNDARY_TIMEOUT_MS= (default 700) to change how long a confirmation stays armed. Edger keeps short-lived state in =${XDG_RUNTIME_DIR:-$HOME/.cache}/edger=, overridable with =EDGER_STATE_DIR=. Terminal protocols usually do not report key release. Edger ignores presses less than 120 ms apart while armed to reduce accidental creation on key repeat, but cannot guarantee whether a physical key was held. Editor-initiated tmux session switching resolves the client for its pane; it does not need the tmux key binding's environment.
 
 The script needs Bash 5 and the active multiplexer CLI. Herdr also needs =jq=; tmux foreground detection uses =ps=. Edger adds no build step or daemon. Keep the editor integration, multiplexer plugin, and script on the same revision when updating. Run =tests/run.sh= for shell/Neovim checks and =emacs --batch -Q -L emacs -l emacs/edger.el -l tests/edger-test.el -f ert-run-tests-batch-and-exit= for Emacs checks.

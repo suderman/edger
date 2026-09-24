@@ -127,6 +127,32 @@
               (should (equal (car calls) (list edger-executable nil nil nil "cross" "close")))))
         (set-frame-parameter frame 'edger-herdr-pane-id nil)))))
 
+(ert-deftest edger-close-windows-then-tabs-then-pane ()
+  (let ((frame (selected-frame))
+        (original-tabs (length (tab-bar-tabs)))
+        calls)
+    (unwind-protect
+        (progn
+          (set-frame-parameter frame 'edger-herdr-pane-id "p1")
+          (tab-bar-new-tab)
+          (tab-bar-new-tab)
+          (cl-letf (((symbol-function 'call-process)
+                     (lambda (&rest args) (push args calls) 0)))
+            (edger-vertical)
+            (edger-close)
+            (should (= (length (tab-bar-tabs)) (+ original-tabs 2)))
+            (should (one-window-p t))
+            (edger-close)
+            (should (= (length (tab-bar-tabs)) (+ original-tabs 1)))
+            (edger-close)
+            (should (= (length (tab-bar-tabs)) original-tabs))
+            (should (equal (mapcar (lambda (args) (nth 5 args)) calls)
+                           '("clear" "clear" "clear" "clear")))
+            (edger-close)
+            (should (equal (car calls) (list edger-executable nil nil nil "cross" "close")))))
+      (while (> (length (tab-bar-tabs)) original-tabs) (tab-bar-close-tab))
+      (set-frame-parameter frame 'edger-herdr-pane-id nil))))
+
 (ert-deftest edger-graphical-frame-stays-local ()
   (save-window-excursion
     (delete-other-windows)

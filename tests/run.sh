@@ -34,7 +34,6 @@ case "$1" in
       '#{client_tty}') echo "${EDGER_TEST_CLIENT_TTY-/dev/tty}" ;;
       *) echo %1 ;;
     esac ;;
-  show-option) [[ ${EDGER_TEST_SESSIONS:-off} != on ]] || echo on ;;
   list-windows) printf '@1\n@2\n@3\n' ;;
   list-sessions) if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '$1\n'; else printf '$1\n$2\n$3\n'; fi ;;
 esac
@@ -184,34 +183,34 @@ reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross up
 assert_absent 'switch-client'
 reset_log
-# Editor integrations call cross without the plugin's per-key session environment.
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on press down
+# Editor integrations call cross without the plugin's per-key client environment.
+EDGER_BACKEND=tmux TMUX_PANE=%1 press down
 assert_log "switch-client -c /dev/tty -t \$2"
 assert_log 'display-message -p -t %1 #{client_tty}'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_CLIENT_TTY='' press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_CLIENT_TTY='' press down
 assert_absent 'switch-client'
-reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_SESSION=\$3 press down
 assert_absent 'new-session'
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_SESSION=\$3 press down
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSION=\$3 press down
+assert_absent 'new-session'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSION=\$3 press down
 assert_log 'new-session -d -P -F #{session_id} -c %1'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
-session="\$2"
-assert_log "switch-client -c /dev/tty -t $session"
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
+assert_log "switch-client -c /dev/tty -t \$2"
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross up
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross up
 assert_absent 'switch-client'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press up
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press up
 assert_log "switch-client -c /dev/tty -t \$1"
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
 assert_log "switch-client -c /dev/tty -t \$3"
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
 assert_log 'new-session -d -P -F #{session_id} -c %1'
 reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" resize left alt+shift+h
@@ -289,8 +288,7 @@ PATH=$system_path tmux -L "$server" set-option -g @edger-close-key q
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-q' >/dev/null
 PATH=$system_path tmux -L "$server" set-option -g @edger-key C-M
-PATH=$system_path tmux -L "$server" set-option -g @edger-sessions on
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
-PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_SESSIONS=1' >/dev/null
+PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_CLIENT_TTY=' >/dev/null
 PATH=$system_path tmux -L "$server" kill-server
 echo 'edger routing, Neovim, and tmux checks passed'

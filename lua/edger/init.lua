@@ -44,8 +44,9 @@ end
 
 local function action(name, opts)
   if name == "close" then
-    if #vim.api.nvim_tabpage_list_wins(0) == 1 then cross(opts, "close")
-    else vim.cmd.close(); cross(opts, "clear") end
+    if #vim.api.nvim_tabpage_list_wins(0) > 1 then vim.cmd.close(); cross(opts, "clear")
+    elseif #vim.api.nvim_list_tabpages() > 1 then vim.cmd.tabclose(); cross(opts, "clear")
+    else cross(opts, "close") end
   else
     vim.cmd(({ horizontal = "split", vertical = "vsplit" })[name])
     cross(opts, "clear")

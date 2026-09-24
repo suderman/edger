@@ -175,7 +175,6 @@ tmux_sessions() {
 }
 tmux_outer_enabled() {
   [[ $dir == left || $dir == right ]] && return 0
-  [[ ${EDGER_TMUX_SESSIONS:-$(tmux_run show-option -gqv @edger-sessions)} == @(1|on) ]] || return 1
   EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$(tmux_run display-message -p -t "$tmux_pane" '#{client_tty}')}
   [[ -n $EDGER_TMUX_CLIENT_TTY ]]
 }
