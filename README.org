@@ -1,6 +1,6 @@
 * Edger
 
-Use the same directional keys to move through Emacs or Neovim windows, then Herdr or tmux panes. At a pane edge, left/right moves to another Herdr tab or tmux window. Up/down moves to another Herdr workspace; tmux session switching is optional. Herdr tabs and workspaces wrap. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
+Use the same directional keys to move through Emacs or Neovim windows, then Herdr or tmux panes. At a pane edge, left/right moves to another Herdr tab or tmux window. Up/down moves to another Herdr workspace; tmux session switching is optional. At the first or last tab, window, workspace, or session, navigation stops instead of wrapping. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
 
 | Key | Direction | Herdr pane edge    | tmux pane edge               |
 |-----+-----------+--------------------+------------------------------|
@@ -179,7 +179,7 @@ set -g @edger-key 'M'
 set -g @plugin 'suderman/edger'
 #+end_src
 
-The plugin also maps shifted direction keys for resizing and =t/u/i/w= for the window actions. Override action letters with =@edger-tab-key=, =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Ctrl+Alt+q or Alt+q when =@edger-key= is =M=. To cycle sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching affects the tmux client, not just its pane. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
+The plugin also maps shifted direction keys for resizing and =t/u/i/w= for the window actions. Override action letters with =@edger-tab-key=, =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Ctrl+Alt+q or Alt+q when =@edger-key= is =M=. To switch sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching affects the tmux client, not just its pane. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
 
 ** Terminal keys and CLI
 

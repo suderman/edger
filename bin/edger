@@ -57,8 +57,8 @@ herdr_next() {
     jq -r --arg id "$id" --arg field "$field" --arg list "$list" --argjson step "$step" '
       [.result[$list][]?] | sort_by(.number) |
       (map(.[$field]) | index($id)) as $i |
-      if length < 2 or $i == null then empty
-      else .[($i + $step + length) % length][$field] end'
+      if $i != null and ($i + $step >= 0) and ($i + $step < length)
+      then .[$i + $step][$field] else empty end'
 }
 herdr_cross() {
   local response changed workspace current next
@@ -108,8 +108,14 @@ herdr_action() {
   esac
 }
 
+tmux_neighbor() {
+  awk -v current="$1" -v step="$step" '
+    { ids[NR]=$1; if ($1==current) pos=NR }
+    END { if (pos && pos+step>=1 && pos+step<=NR) print ids[pos+step] }'
+}
+
 tmux_cross() {
-  local edge window
+  local edge window next
   case $dir in
     left) edge=pane_at_left ;; right) edge=pane_at_right ;;
     up) edge=pane_at_top ;; down) edge=pane_at_bottom ;;
@@ -120,15 +126,13 @@ tmux_cross() {
   fi
   if [[ $dir == left || $dir == right ]]; then
     window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
-    if [[ $step == 1 ]]; then tmux_run next-window -t "$window" 2>/dev/null || :
-    else tmux_run previous-window -t "$window" 2>/dev/null || :; fi
+    next=$(tmux_run list-windows -t "$window" -F '#{window_id}' | tmux_neighbor "$window")
+    if [[ -n $next ]]; then tmux_run select-window -t "$next"; fi
   elif [[ ${EDGER_TMUX_SESSIONS:-0} == 1 && -n ${EDGER_TMUX_CLIENT_TTY:-} ]]; then
-    local current next
+    local current
     current=$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}')
-    next=$(tmux_run list-sessions -F '#{session_id}' | awk -v current="$current" -v step="$step" '
-      { ids[NR]=$1; if ($1==current) pos=NR }
-      END { if (NR>1 && pos) print ids[(pos-1+step+NR)%NR+1] }')
-    [[ -n $next ]] && tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$next"
+    next=$(tmux_run list-sessions -F '#{session_id}' | tmux_neighbor "$current")
+    if [[ -n $next ]]; then tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$next"; fi
   fi
 }
 
