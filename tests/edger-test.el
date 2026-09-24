@@ -33,6 +33,26 @@
         (set-frame-parameter frame 'edger-herdr-pane-id nil)
         (set-frame-parameter frame 'edger-herdr-socket-path nil)))))
 
+(ert-deftest edger-tmux-frame-crosses-session-edge ()
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((frame (selected-frame)) calls)
+      (unwind-protect
+          (progn
+            (set-frame-parameter frame 'edger-tmux-pane-id "%3")
+            (set-frame-parameter frame 'edger-tmux-socket "/tmp/tmux-test,1,0")
+            (cl-letf (((symbol-function 'call-process)
+                       (lambda (&rest args)
+                         (push (list args (getenv "TMUX") (getenv "TMUX_PANE")
+                                     (getenv "EDGER_BACKEND")) calls)
+                         0)))
+              (edger-down)
+              (should (equal (car calls)
+                             (list (list edger-executable nil nil nil "cross" "down")
+                                   "/tmp/tmux-test,1,0" "%3" "tmux")))))
+        (set-frame-parameter frame 'edger-tmux-pane-id nil)
+        (set-frame-parameter frame 'edger-tmux-socket nil)))))
+
 (ert-deftest edger-crosses-regardless-of-axis-splits ()
   (save-window-excursion
     (delete-other-windows)
@@ -66,6 +86,7 @@
         (set-frame-parameter frame 'edger-herdr-pane-id nil)))))
 
 (ert-deftest edger-actions-stay-local-then-cross ()
+  (should-not (fboundp 'edger-tab))
   (save-window-excursion
     (delete-other-windows)
     (let ((frame (selected-frame)) calls)

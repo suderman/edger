@@ -1,6 +1,7 @@
 vim.opt.rtp:prepend(vim.fn.getcwd())
 vim.env.HERDR_PANE_ID = "p1"
-require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN })
+require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN,
+  actions = { horizontal = "u", vertical = "i", close = "w", tab = "t" } })
 vim.cmd.vsplit()
 local left = vim.api.nvim_get_current_win()
 vim.cmd.EdgerRight()
@@ -26,8 +27,7 @@ vim.cmd.EdgerClose()
 vim.cmd.EdgerClose()
 local calls = vim.fn.readfile(vim.env.EDGER_TEST_LOG)
 assert(calls[#calls] == "cross close", "Last window should close pane")
-vim.cmd.EdgerTab()
-assert(vim.fn.tabpagenr("$") == 2, "Tab should open in Neovim")
+assert(vim.fn.exists(":EdgerTab") == 0, "Removed tab command should not exist")
 vim.cmd.EdgerRight()
 calls = vim.fn.readfile(vim.env.EDGER_TEST_LOG)
 assert(calls[#calls] == "cross right", "Unsplit tab should cross immediately")
@@ -39,4 +39,10 @@ vim.cmd.wincmd("j")
 vim.cmd.EdgerDown()
 calls = vim.fn.readfile(vim.env.EDGER_TEST_LOG)
 assert(calls[#calls] == "cross down", "Horizontal split should cross at its edge")
+vim.env.HERDR_PANE_ID = nil
+vim.env.TMUX_PANE = "%1"
+vim.env.TMUX = "/tmp/tmux-test,1,0"
+vim.cmd.EdgerDown()
+calls = vim.fn.readfile(vim.env.EDGER_TEST_LOG)
+assert(calls[#calls] == "cross down", "Neovim should cross a tmux session edge")
 vim.cmd.qa({ bang = true })

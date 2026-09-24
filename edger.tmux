@@ -15,7 +15,7 @@ for spec in 'h left' 'j down' 'k up' 'l right'; do
     "$sessions" "$root/bin/edger" "$direction" "$key"
   tmux bind-key -n "$key" run-shell "$command"
 done
-for spec in 'tab t' 'horizontal u' 'vertical i' 'close w'; do
+for spec in 'horizontal u' 'vertical i' 'close w'; do
   read -r action default <<< "$spec"
   letter=$(tmux show-option -gqv "@edger-$action-key")
   key="$modifier-${letter:-$default}"

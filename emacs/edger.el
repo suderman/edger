@@ -89,7 +89,6 @@
 (defun edger-resize-up () "Resize up." (interactive) (edger--resize 'up))
 (defun edger-resize-right () "Resize right." (interactive) (edger--resize 'right))
 
-(defun edger-tab () "Open an Emacs tab." (interactive) (tab-new) (edger--clear))
 (defun edger-horizontal () "Split below and select the new window." (interactive)
   (select-window (split-window-below)) (edger--clear))
 (defun edger-vertical () "Split right and select the new window." (interactive)

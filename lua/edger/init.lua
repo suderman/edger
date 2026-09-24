@@ -47,7 +47,7 @@ local function action(name, opts)
     if #vim.api.nvim_tabpage_list_wins(0) == 1 then cross(opts, "close")
     else vim.cmd.close(); cross(opts, "clear") end
   else
-    vim.cmd(({ tab = "tabnew", horizontal = "split", vertical = "vsplit" })[name])
+    vim.cmd(({ horizontal = "split", vertical = "vsplit" })[name])
     cross(opts, "clear")
   end
 end
@@ -55,7 +55,7 @@ end
 function M.setup(opts)
   opts = opts or {}
   local modifier = opts.modifier or "C-M"
-  local actions = opts.actions or { tab = "t", horizontal = "u", vertical = "i", close = "w" }
+  local actions = opts.actions or { horizontal = "u", vertical = "i", close = "w" }
   for letter, direction in pairs(directions) do
     local callback = function() navigate(direction, letter, opts) end
     vim.api.nvim_create_user_command("Edger" .. direction:sub(1, 1):upper() .. direction:sub(2), callback, {})
@@ -68,12 +68,15 @@ function M.setup(opts)
         { silent = true, desc = "Edger resize " .. direction })
     end
   end
-  for name, letter in pairs(actions) do
-    local callback = function() action(name, opts) end
-    vim.api.nvim_create_user_command("Edger" .. name:sub(1, 1):upper() .. name:sub(2), callback, {})
-    if opts.keymaps ~= false then
-      vim.keymap.set("n", "<" .. modifier .. "-" .. letter .. ">", callback,
-        { silent = true, desc = "Edger " .. name })
+  for _, name in ipairs({ "horizontal", "vertical", "close" }) do
+    local letter = actions[name]
+    if letter then
+      local callback = function() action(name, opts) end
+      vim.api.nvim_create_user_command("Edger" .. name:sub(1, 1):upper() .. name:sub(2), callback, {})
+      if opts.keymaps ~= false then
+        vim.keymap.set("n", "<" .. modifier .. "-" .. letter .. ">", callback,
+          { silent = true, desc = "Edger " .. name })
+      end
     end
   end
 end

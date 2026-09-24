@@ -31,8 +31,10 @@ case "$1" in
       '#{window_id}') echo "${EDGER_TEST_WINDOW:-@1}" ;;
       '#{session_id}') echo "${EDGER_TEST_SESSION:-\$1}" ;;
       '#{session_windows}'|'#{window_panes}') echo "${EDGER_TEST_PANES:-2}" ;;
+      '#{client_tty}') echo "${EDGER_TEST_CLIENT_TTY-/dev/tty}" ;;
       *) echo %1 ;;
     esac ;;
+  show-option) [[ ${EDGER_TEST_SESSIONS:-off} != on ]] || echo on ;;
   list-windows) printf '@1\n@2\n@3\n' ;;
   list-sessions) if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '$1\n'; else printf '$1\n$2\n$3\n'; fi ;;
 esac
@@ -179,6 +181,19 @@ reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross up
 assert_absent 'switch-client'
 reset_log
+# Editor integrations call cross without the plugin's per-key session environment.
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on press down
+assert_log "switch-client -c /dev/tty -t \$2"
+assert_log 'display-message -p -t %1 #{client_tty}'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_CLIENT_TTY='' press down
+assert_absent 'switch-client'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_SESSION=\$3 press down
+assert_absent 'new-session'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_SESSIONS=on EDGER_TEST_SESSION=\$3 press down
+assert_log 'new-session -d -P -F #{session_id} -c %1'
+reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
 session="\$2"
 assert_log "switch-client -c /dev/tty -t $session"
@@ -202,11 +217,7 @@ reset_log
 "$edger" cross resize left
 assert_log 'pane resize --direction left --pane p1'
 reset_log
-EDGER_TEST_PROCESS=/bin/nvim "$edger" tab
-assert_log 'pane send-keys p1 ctrl+alt+t'
-reset_log
-EDGER_TEST_PROCESS=/bin/bash "$edger" tab
-assert_log 'tab create --workspace w1 --focus'
+if "$edger" tab > "$tmp/error" 2>&1; then echo 'Removed tab action accepted' >&2; exit 1; fi
 reset_log
 EDGER_TEST_PROCESS=/bin/bash "$edger" horizontal
 assert_log 'pane split --pane p1 --direction down --focus'
@@ -228,9 +239,6 @@ assert_log 'send-keys -t %1 M-L'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross resize right
 assert_log 'resize-pane -t %1 -R 5'
-reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross tab
-assert_log "new-window -t \$1: -c #{pane_current_path}"
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross horizontal
 assert_log 'split-window -t %1 -c #{pane_current_path}'
@@ -272,6 +280,7 @@ socket=$(PATH=$system_path tmux -L "$server" display-message -p '#{socket_path}'
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger resize left C-M-H' >/dev/null
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M-w' >/dev/null
+if PATH=$system_path tmux -L "$server" list-keys -T root C-M-t >/dev/null 2>&1; then echo 'Removed tab binding present' >&2; exit 1; fi
 PATH=$system_path tmux -L "$server" set-option -g @edger-close-key q
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-M-q' >/dev/null

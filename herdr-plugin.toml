@@ -54,12 +54,6 @@ contexts = ["global"]
 command = ["bash", "bin/edger", "resize", "right"]
 
 [[actions]]
-id = "tab"
-title = "New tab"
-contexts = ["global"]
-command = ["bash", "bin/edger", "tab"]
-
-[[actions]]
 id = "horizontal"
 title = "Split horizontally"
 contexts = ["global"]

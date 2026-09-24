@@ -2,7 +2,7 @@
 # Route editor-aware window actions through Herdr or tmux.
 set -euo pipefail
 
-usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] tab|horizontal|vertical|close [forward-key] | [cross] clear' >&2; exit 2; }
+usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] horizontal|vertical|close [forward-key] | [cross] clear' >&2; exit 2; }
 mode=normal
 if [[ ${1-} == cross ]]; then mode=cross; shift; fi
 operation=navigate
@@ -13,7 +13,7 @@ case $name in
   down) letter=j; step=1; tmux_dir=D ;;
   up) letter=k; step=-1; tmux_dir=U ;;
   right) letter=l; step=1; tmux_dir=R ;;
-  tab) letter=t ;; horizontal) letter=u ;; vertical) letter=i ;; close) letter=w ;;
+  horizontal) letter=u ;; vertical) letter=i ;; close) letter=w ;;
   clear) operation=clear; letter= ;;
   *) usage ;;
 esac
@@ -155,9 +155,6 @@ herdr_action() {
   local workspace count
   case $operation in
     resize) "$herdr" pane resize --direction "$name" --pane "$herdr_pane" >/dev/null 2>&1 || : ;;
-    tab)
-      workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
-      "$herdr" tab create --workspace "$workspace" --focus >/dev/null ;;
     horizontal) "$herdr" pane split --pane "$herdr_pane" --direction down --focus >/dev/null ;;
     vertical) "$herdr" pane split --pane "$herdr_pane" --direction right --focus >/dev/null ;;
     close)
@@ -177,7 +174,10 @@ tmux_sessions() {
   tmux_run list-sessions -F '#{session_id} #{session_created}' | sort -k2,2n -k1.2,1n | awk '{print $1}'
 }
 tmux_outer_enabled() {
-  [[ $dir == left || $dir == right || ( ${EDGER_TMUX_SESSIONS:-0} == 1 && -n ${EDGER_TMUX_CLIENT_TTY:-} ) ]]
+  [[ $dir == left || $dir == right ]] && return 0
+  [[ ${EDGER_TMUX_SESSIONS:-$(tmux_run show-option -gqv @edger-sessions)} == @(1|on) ]] || return 1
+  EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$(tmux_run display-message -p -t "$tmux_pane" '#{client_tty}')}
+  [[ -n $EDGER_TMUX_CLIENT_TTY ]]
 }
 tmux_outer_neighbor() {
   local current
@@ -257,7 +257,6 @@ tmux_action() {
       local amount=3
       [[ $name == left || $name == right ]] && amount=5
       tmux_run resize-pane -t "$tmux_pane" "-$tmux_dir" "$amount" 2>/dev/null || : ;;
-    tab) tmux_run new-window -t "$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}'):" -c '#{pane_current_path}' ;;
     horizontal) tmux_run split-window -t "$tmux_pane" -c '#{pane_current_path}' ;;
     vertical) tmux_run split-window -h -t "$tmux_pane" -c '#{pane_current_path}' ;;
     close)
