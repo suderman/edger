@@ -47,8 +47,9 @@ tmux_pane=${TMUX_PANE:-}
 
 # The shell command exits between presses, so keep one short-lived state per pane.
 boundary_timeout=${EDGER_BOUNDARY_TIMEOUT_MS:-700}
-[[ $boundary_timeout =~ ^[1-9][0-9]*$ ]] || {
-  echo 'edger: boundary timeout must be positive milliseconds' >&2; exit 2;
+creation_idle=${EDGER_CREATION_IDLE_MS:-400}
+[[ $boundary_timeout =~ ^[1-9][0-9]*$ && $creation_idle =~ ^[1-9][0-9]*$ ]] || {
+  echo 'edger: boundary timeout and creation idle must be positive milliseconds' >&2; exit 2;
 }
 if [[ $backend == tmux && -z $tmux_pane ]]; then
   command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
@@ -60,6 +61,32 @@ else state_context=${HERDR_SOCKET_PATH:-}; fi
 state_key=$(printf '%s' "$backend:$state_context:${tmux_pane:-$herdr_pane}" | cksum)
 state_file=$state_dir/${state_key// /-}
 state_clear() { rm -f -- "$state_file"; }
+# Outer navigation changes the active pane. Keep its recent-key history per client
+# (or Herdr socket), while confirmation remains isolated to the current pane.
+travel_path() {
+  local scope=$state_context key
+  if [[ $backend == tmux ]]; then
+    EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$("$tmux_cmd" display-message -p -t "$tmux_pane" '#{client_tty}')}
+    scope+=:${EDGER_TMUX_CLIENT_TTY:-$tmux_pane}
+  fi
+  key=$(printf '%s' "travel:$backend:$scope" | cksum)
+  travel_file=$state_dir/${key// /-}
+}
+travel_clear() { travel_path; rm -f -- "$travel_file"; }
+travel_save() {
+  mkdir -p -- "$state_dir"
+  chmod 700 -- "$state_dir"
+  (umask 077; printf '%s %s\n' "$dir" "$now" > "$travel_file.$$")
+  mv -f -- "$travel_file.$$" "$travel_file"
+}
+travel_recent() {
+  local previous_dir previous_at
+  [[ -f $travel_file ]] || return 1
+  read -r previous_dir previous_at < "$travel_file" || :
+  if [[ $previous_dir != "$dir" ]]; then rm -f -- "$travel_file"; return 1; fi
+  [[ $previous_at =~ ^[0-9]+$ ]] &&
+    (( now >= previous_at && now - previous_at < creation_idle * 1000 ))
+}
 state_save() {
   mkdir -p -- "$state_dir"
   chmod 700 -- "$state_dir"
@@ -86,7 +113,7 @@ state_repeating() {
   fi
   return 1
 }
-if [[ $operation != navigate ]]; then state_clear; [[ $operation != clear ]] || exit 0; fi
+if [[ $operation != navigate ]]; then state_clear; travel_clear; [[ $operation != clear ]] || exit 0; fi
 herdr_process_is_editor() {
   "$herdr" pane process-info --pane "$herdr_pane" 2>/dev/null | jq -e '
     any(.result.process_info.foreground_processes[]?;
@@ -218,20 +245,25 @@ outer_create() {
 boundary_edge() {
   local target
   if ! outer_enabled; then state_clear; return; fi
+  now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
+  [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
+  travel_path
   target=$(outer_neighbor)
   if [[ -n $target ]]; then
     state_clear
     outer_focus "$target"
+    travel_save
   elif [[ $step == 1 ]]; then
-    now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
-    [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
+    if travel_recent; then state_clear; travel_save; return; fi
     state_load
     if [[ -z $phase ]]; then state_save create; return; fi
     if state_repeating; then return; fi
     state_clear
     outer_create
+    travel_save
   else
     state_clear
+    rm -f -- "$travel_file"
   fi
 }
 
