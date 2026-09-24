@@ -10,19 +10,20 @@ local function executable(opts)
   return "edger"
 end
 
-local function navigate(direction, letter, opts)
-  local before = vim.api.nvim_get_current_win()
-  vim.cmd.wincmd(letter)
-  if vim.api.nvim_get_current_win() ~= before then return end
-  if not vim.env.HERDR_PANE_ID and not vim.env.TMUX_PANE then return end
-  local result = vim.fn.system({ executable(opts), "cross", direction })
-  if vim.v.shell_error ~= 0 then vim.notify(result, vim.log.levels.ERROR) end
-end
-
 local function cross(opts, ...)
   if not vim.env.HERDR_PANE_ID and not vim.env.TMUX_PANE then return end
   local result = vim.fn.system({ executable(opts), "cross", ... })
   if vim.v.shell_error ~= 0 then vim.notify(result, vim.log.levels.ERROR) end
+end
+
+local function navigate(direction, letter, opts)
+  local before = vim.api.nvim_get_current_win()
+  vim.cmd.wincmd(letter)
+  if vim.api.nvim_get_current_win() ~= before then
+    cross(opts, "clear")
+  else
+    cross(opts, direction)
+  end
 end
 
 local function resize(direction, letter, opts)
@@ -38,14 +39,16 @@ local function resize(direction, letter, opts)
   local command = ({ h = "<", l = ">", j = "+", k = "-" })[letter]
   if not adjacent then command = ({ h = ">", l = "<", j = "-", k = "+" })[letter] end
   vim.cmd.wincmd(command)
+  cross(opts, "clear")
 end
 
 local function action(name, opts)
   if name == "close" then
     if #vim.api.nvim_tabpage_list_wins(0) == 1 then cross(opts, "close")
-    else vim.cmd.close() end
+    else vim.cmd.close(); cross(opts, "clear") end
   else
     vim.cmd(({ tab = "tabnew", horizontal = "split", vertical = "vsplit" })[name])
+    cross(opts, "clear")
   end
 end
 

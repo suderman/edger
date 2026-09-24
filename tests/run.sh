@@ -22,7 +22,7 @@ esac
 SH
 cat > "$tmp/bin/tmux" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$EDGER_TEST_LOG"
+if [[ $1 != show-option && $1 != set-option ]]; then printf '%s\n' "$*" >> "$EDGER_TEST_LOG"; fi
 case "$1" in
   display-message)
     case "${*: -1}" in
@@ -44,10 +44,12 @@ SH
 chmod +x "$tmp/bin/"*
 system_path=$PATH
 export PATH="$tmp/bin:$PATH" HERDR_BIN_PATH="$tmp/bin/herdr" TMUX_BIN_PATH="$tmp/bin/tmux" EDGER_BACKEND=herdr HERDR_PANE_ID=p1
+export EDGER_STATE_DIR="$tmp/state" EDGER_TEST_NOW_US=1000000000
 edger="$root/bin/edger"
 assert_log() { grep -Fx -- "$1" "$EDGER_TEST_LOG" >/dev/null || { echo "Missing: $1" >&2; cat "$EDGER_TEST_LOG" >&2; exit 1; }; }
 assert_absent() { if grep -q -- "$1" "$EDGER_TEST_LOG"; then echo "Unexpected: $1" >&2; exit 1; fi; }
-reset_log() { : > "$EDGER_TEST_LOG"; }
+reset_log() { : > "$EDGER_TEST_LOG"; rm -rf "$EDGER_STATE_DIR"; clock=1000000000; }
+press() { EDGER_TEST_NOW_US=$clock "$edger" cross "$1"; clock=$((clock + 200000)); }
 
 if "$edger" diagonal 2>/dev/null; then echo 'invalid direction accepted' >&2; exit 1; fi
 reset_log
@@ -62,33 +64,97 @@ EDGER_TEST_PROCESS=/bin/bash EDGER_TEST_MOVED=true "$edger" down
 assert_log 'pane focus --direction down --pane p1'
 assert_absent 'workspace list'
 reset_log
-"$edger" cross right
+press right
 assert_log 'pane focus --direction right --pane p1'
-assert_log 'tab list --workspace w1'
+assert_log 'notification show → split edge --position top-right --sound none'
+assert_absent 'tab focus'
+press right
 assert_log 'tab focus t3'
 reset_log
-"$edger" cross left
+press left
+assert_absent 'tab focus'
+press left
 assert_log 'tab focus t1'
 reset_log
-"$edger" cross down
+press down
+assert_absent 'workspace focus'
+press down
 assert_log 'workspace focus w2'
 reset_log
-"$edger" cross up
-assert_absent 'workspace focus'
-reset_log
-EDGER_TEST_WORKSPACE=w2 "$edger" cross up
+EDGER_TEST_WORKSPACE=w2 press up
+EDGER_TEST_WORKSPACE=w2 press up
 assert_log 'workspace focus w1'
 reset_log
-EDGER_TEST_WORKSPACE=w2 "$edger" cross down
+EDGER_TEST_WORKSPACE=w2 press down
+EDGER_TEST_WORKSPACE=w2 press down
 assert_log 'workspace focus w3'
 reset_log
-EDGER_TEST_WORKSPACE=w3 "$edger" cross down
+EDGER_TEST_TAB=t1 press left
+EDGER_TEST_TAB=t1 press left
+EDGER_TEST_TAB=t1 press left
+assert_absent 'tab create'
+assert_absent 'tab focus'
+assert_log 'notification show ← outer edge --position top-left --sound none'
+reset_log
+EDGER_TEST_WORKSPACE=w1 press up
+EDGER_TEST_WORKSPACE=w1 press up
+EDGER_TEST_WORKSPACE=w1 press up
+assert_absent 'workspace create'
 assert_absent 'workspace focus'
 reset_log
-EDGER_TEST_TAB=t1 "$edger" cross left
+EDGER_TEST_TAB=t3 press right
+assert_absent 'tab create'
+EDGER_TEST_TAB=t3 press right
+assert_log 'notification show → outer edge --position top-right --sound none'
+assert_absent 'tab create'
+EDGER_TEST_TAB=t3 press right
+assert_log 'tab create --workspace w1 --focus'
+reset_log
+EDGER_TEST_WORKSPACE=w3 press down
+EDGER_TEST_WORKSPACE=w3 press down
+assert_absent 'workspace create'
+EDGER_TEST_WORKSPACE=w3 press down
+assert_log 'workspace create --focus'
+reset_log
+press right
+clock=$((clock + 800000))
+press right
 assert_absent 'tab focus'
 reset_log
-EDGER_TEST_TAB=t3 "$edger" cross right
+EDGER_BOUNDARY_TIMEOUT_MS=150 EDGER_FLASH_MS=10 press right
+EDGER_BOUNDARY_TIMEOUT_MS=150 EDGER_FLASH_MS=10 press right
+assert_absent 'tab focus'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_FLASH_MS=10 press right
+assert_log 'display-message -d 10 -t %1 → split edge'
+reset_log
+press right
+press down
+press down
+assert_log 'workspace focus w2'
+assert_absent 'tab focus'
+reset_log
+EDGER_TEST_TAB=t3 press right
+EDGER_TEST_TAB=t3 press right
+clock=$((clock - 170000))
+EDGER_TEST_TAB=t3 press right
+clock=$((clock - 170000))
+EDGER_TEST_TAB=t3 press right
+assert_absent 'tab create'
+reset_log
+press right
+EDGER_TEST_MOVED=true press right
+press right
+assert_absent 'tab focus'
+reset_log
+press right
+"$edger" clear
+press right
+assert_absent 'tab focus'
+reset_log
+press right
+"$edger" cross resize left
+press right
 assert_absent 'tab focus'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" left C-M-h
@@ -99,39 +165,54 @@ EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_EDGE=0 "$edger" cross right
 assert_log 'select-pane -t %1 -R'
 assert_absent 'list-windows'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross right
+EDGER_BACKEND=tmux TMUX_PANE=%1 press right
+assert_absent 'select-window'
+EDGER_BACKEND=tmux TMUX_PANE=%1 press right
 assert_log 'select-window -t @2'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 "$edger" cross left
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 press left
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 press left
 assert_log 'select-window -t @1'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 "$edger" cross right
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 press right
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@2 press right
 assert_log 'select-window -t @3'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@1 "$edger" cross left
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@1 press left
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@1 press left
 assert_absent 'select-window'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 "$edger" cross right
-assert_absent 'select-window'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
+assert_absent 'new-window'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_WINDOW=@3 press right
+assert_log 'new-window -a -t @3 -c #{pane_current_path}'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross up
 assert_absent 'switch-client'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
+assert_absent 'switch-client'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty press down
 session="\$2"
 assert_log "switch-client -c /dev/tty -t $session"
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty "$edger" cross up
 assert_absent 'switch-client'
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 "$edger" cross up
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press up
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press up
 assert_log "switch-client -c /dev/tty -t \$1"
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 "$edger" cross down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
 assert_log "switch-client -c /dev/tty -t \$3"
 reset_log
-EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 "$edger" cross down
-assert_absent 'switch-client'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+assert_absent 'new-session'
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_SESSIONS=1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
+assert_log 'new-session -d -P -F #{session_id} -c %1'
 reset_log
 EDGER_TEST_PROCESS=/bin/nvim "$edger" resize left alt+shift+h
 assert_log 'pane send-keys p1 alt+shift+h'
@@ -181,10 +262,12 @@ reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_ONLY_SESSION=1 EDGER_TEST_PANES=1 "$edger" cross close
 assert_absent 'kill-pane'
 reset_log
-TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=herdr "$edger" cross left
+TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=herdr press left
+TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=herdr press left
 assert_log 'tab focus t1'
 reset_log
-HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" cross right
+HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=tmux TMUX_PANE=%1 press right
+HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=tmux TMUX_PANE=%1 press right
 assert_log 'select-window -t @2'
 if HERDR_BIN_PATH="$tmp/bin/missing-herdr" EDGER_BACKEND=herdr "$edger" cross left > "$tmp/error" 2>&1; then
   echo 'Missing Herdr executable accepted' >&2; exit 1

@@ -54,14 +54,19 @@
       (unless (eq 0 (apply #'call-process edger-executable nil nil nil "cross" args))
         (user-error "Edger could not %s" (mapconcat #'identity args " "))))))
 
+(defun edger--clear ()
+  "Clear a pending multiplexer boundary after local navigation."
+  (when (edger--pane-context) (edger--cross "clear")))
+
 (defun edger--navigate (direction)
-  "Navigate DIRECTION locally, then cross a terminal multiplexer edge."
+  "Navigate DIRECTION locally, then confirm a terminal multiplexer edge."
   (let ((neighbor (windmove-find-other-window direction)))
     (if (or (and neighbor
                  (or (not (window-minibuffer-p neighbor))
                      (active-minibuffer-window)))
             (not (edger--pane-context)))
-        (windmove-do-window-select direction nil nil this-command)
+        (progn (windmove-do-window-select direction nil nil this-command)
+               (edger--clear))
       (edger--cross (symbol-name direction)))))
 
 (defun edger--resize (direction)
@@ -75,8 +80,8 @@
          (next (window-in-direction forward window))
          (previous (window-in-direction backward window)))
     (cond
-     (next (adjust-window-trailing-edge window delta horizontal))
-     (previous (adjust-window-trailing-edge previous delta horizontal))
+     (next (adjust-window-trailing-edge window delta horizontal) (edger--clear))
+     (previous (adjust-window-trailing-edge previous delta horizontal) (edger--clear))
      (t (edger--cross "resize" (symbol-name direction))))))
 
 (defun edger-resize-left () "Resize left." (interactive) (edger--resize 'left))
@@ -84,18 +89,19 @@
 (defun edger-resize-up () "Resize up." (interactive) (edger--resize 'up))
 (defun edger-resize-right () "Resize right." (interactive) (edger--resize 'right))
 
-(defun edger-tab () "Open an Emacs tab." (interactive) (tab-new))
+(defun edger-tab () "Open an Emacs tab." (interactive) (tab-new) (edger--clear))
 (defun edger-horizontal () "Split below and select the new window." (interactive)
-  (select-window (split-window-below)))
+  (select-window (split-window-below)) (edger--clear))
 (defun edger-vertical () "Split right and select the new window." (interactive)
-  (select-window (split-window-right)))
+  (select-window (split-window-right)) (edger--clear))
 (defun edger-close () "Close a window, or its enclosing multiplexer pane."
   (interactive)
   (if (one-window-p t)
       (if (edger--pane-context)
           (edger--cross "close")
         (when (> (length (tab-bar-tabs)) 1) (tab-bar-close-tab)))
-    (delete-window)))
+    (delete-window)
+    (edger--clear)))
 
 (defun edger-left () "Navigate left." (interactive) (edger--navigate 'left))
 (defun edger-down () "Navigate down." (interactive) (edger--navigate 'down))

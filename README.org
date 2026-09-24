@@ -1,6 +1,8 @@
 * Edger
 
-Use the same directional keys to move through Emacs or Neovim windows, then Herdr or tmux panes. At a pane edge, left/right moves to another Herdr tab or tmux window. Up/down moves to another Herdr workspace; tmux session switching is optional. At the first or last tab, window, workspace, or session, navigation stops instead of wrapping. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
+Edger moves within splits first: Emacs or Neovim windows, then Herdr or tmux panes. At an edge, it flashes the boundary. Repeat the same direction within 700 ms to cross outward. Left/right moves through tabs (tmux windows); up/down moves through workspaces (tmux sessions when enabled).
+
+At the far right or bottom, the second press flashes the outer boundary. A third press creates a tab or workspace and enters it. Left and top never create anything. Moving successfully or pressing another direction clears the pending confirmation. Edger also resizes editor splits first, and opens tabs, splits, or closes windows in the focused editor or multiplexer.
 
 | Key | Direction | Herdr pane edge    | tmux pane edge               |
 |-----+-----------+--------------------+------------------------------|
@@ -8,6 +10,18 @@ Use the same directional keys to move through Emacs or Neovim windows, then Herd
 | j   | down      | next workspace     | next session, if enabled     |
 | k   | up        | previous workspace | previous session, if enabled |
 | l   | right     | next tab           | next window                  |
+
+#+begin_src text
+M-l  no pane to the right -> split-edge flash
+M-l  next tab exists     -> switch to it
+
+At the last tab:
+M-l  no pane to the right -> split-edge flash
+M-l  no next tab          -> outer-edge flash
+M-l  create a tab at the far right
+#+end_src
+
+Tabs grow rightward; workspaces grow downward. Repeat =M-j= the same way at the bottom to create a workspace. =M-h= at the first tab and =M-k= at the first workspace only flash. The example uses Alt; the default binding family below is Ctrl+Alt. Standalone editors without a multiplexer keep their existing local-only navigation; they have no outer tab/workspace backend to confirm.
 
 The default forwarded chord is Ctrl+Alt+h/j/k/l. Neovim and tmux map it by default; bind it yourself in Emacs and Herdr. Ctrl-only and Alt-only navigation examples follow. Choose one family across the layers. Edger does not control desktop windows.
 
@@ -156,7 +170,7 @@ focus_pane_up = "prefix+k"
 focus_pane_right = "prefix+l"
 #+end_src
 
-Run =herdr server reload-config= after editing the bindings.
+Run =herdr server reload-config= after editing the bindings. Herdr does not expose transient pane-border styling through its CLI or bundled socket API. Edger uses a directional in-app notification as boundary feedback instead; Herdr controls how long it remains visible.
 
 ** tmux
 
@@ -179,12 +193,12 @@ set -g @edger-key 'M'
 set -g @plugin 'suderman/edger'
 #+end_src
 
-The plugin also maps shifted direction keys for resizing and =t/u/i/w= for the window actions. Override action letters with =@edger-tab-key=, =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Ctrl+Alt+q or Alt+q when =@edger-key= is =M=. To switch sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching affects the tmux client, not just its pane. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
+The plugin also maps shifted direction keys for resizing and =t/u/i/w= for the window actions. Override action letters with =@edger-tab-key=, =@edger-horizontal-key=, =@edger-vertical-key=, and =@edger-close-key= before loading the plugin. For example, =set -g @edger-close-key 'q'= maps Ctrl+Alt+q or Alt+q when =@edger-key= is =M=. To switch sessions on up/down at a pane edge, add =set -g @edger-sessions 'on'= before loading the plugin. Session switching and bottom-edge session creation affect the tmux client, not just its pane. tmux flashes the active pane border in amber at a split edge or red at an outer edge and briefly shows a direction label. Its border pulse lasts 150 ms by default and restores the prior window border style. A window with no visible pane border still gets the direction label. Set =@edger-mappings= to =off= to supply your own bindings. Without TPM, run =edger.tmux= from your tmux configuration. Reload the plugin after changing its options.
 
 ** Terminal keys and CLI
 
 Check that your terminal and multiplexer deliver the keys you picked. Traditional terminals can encode Ctrl+Alt as Escape followed by a control byte, and Ctrl+h may collide with Backspace. Inspect a key with Emacs =M-x describe-key RET= or check a Neovim mapping with =:verbose nmap <C-h>=, then try it through Herdr or tmux. In one tested setup, Herdr =pane send-keys ctrl+alt+l= reached terminal Emacs =C-M-l=; tmux 3.6a sends =C-M-l= as ESC followed by Ctrl-L. Neither check proves what every physical keyboard sends.
 
-The shared executable accepts =edger left|down|up|right=, =edger resize left|down|up|right=, and =edger tab|horizontal|vertical|close= from multiplexer bindings. Editors invoke the matching =edger cross ...= operation when needed. You can pass an explicit forwarding key as the last argument, such as =edger left ctrl+h= for Herdr or =edger resize left M-H= for tmux. =EDGER_KEY_MODIFIER= changes the Herdr default; tmux bindings pass their exact key. =EDGER_BACKEND=, =HERDR_BIN_PATH=, and =TMUX_BIN_PATH= override backend or CLI selection.
+The shared executable accepts =edger left|down|up|right=, =edger resize left|down|up|right=, and =edger tab|horizontal|vertical|close= from multiplexer bindings. Editors invoke the matching =edger cross ...= operation when needed. You can pass an explicit forwarding key as the last argument, such as =edger left ctrl+h= for Herdr or =edger resize left M-H= for tmux. =EDGER_KEY_MODIFIER= changes the Herdr default; tmux bindings pass their exact key. =EDGER_BACKEND=, =HERDR_BIN_PATH=, and =TMUX_BIN_PATH= override backend or CLI selection. Set =EDGER_BOUNDARY_TIMEOUT_MS= (default 700) to change how long a confirmation stays armed. =EDGER_FLASH_MS= (default 150) controls the tmux border pulse and message independently; Herdr's notification duration is controlled by Herdr. Edger keeps short-lived state in =${XDG_RUNTIME_DIR:-$HOME/.cache}/edger=, overridable with =EDGER_STATE_DIR=. Terminal protocols usually do not report key release. Edger ignores presses less than 120 ms apart while armed to reduce accidental creation on key repeat, but cannot guarantee whether a physical key was held. The explicit =edger tab= action remains available.
 
-The script needs Bash and the active multiplexer CLI. Herdr also needs =jq=; tmux foreground detection uses =ps=. Edger adds no build step or daemon. Keep the editor integration, multiplexer plugin, and script on the same revision when updating. Run =tests/run.sh= for shell/Neovim checks and =emacs --batch -Q -L emacs -l emacs/edger.el -l tests/edger-test.el -f ert-run-tests-batch-and-exit= for Emacs checks.
+The script needs Bash 5 and the active multiplexer CLI. Herdr also needs =jq=; tmux foreground detection uses =ps=. Edger adds no build step or daemon. Keep the editor integration, multiplexer plugin, and script on the same revision when updating. Run =tests/run.sh= for shell/Neovim checks and =emacs --batch -Q -L emacs -l emacs/edger.el -l tests/edger-test.el -f ert-run-tests-batch-and-exit= for Emacs checks.

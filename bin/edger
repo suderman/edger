@@ -2,7 +2,7 @@
 # Route editor-aware window actions through Herdr or tmux.
 set -euo pipefail
 
-usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] tab|horizontal|vertical|close [forward-key]' >&2; exit 2; }
+usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] tab|horizontal|vertical|close [forward-key] | [cross] clear' >&2; exit 2; }
 mode=normal
 if [[ ${1-} == cross ]]; then mode=cross; shift; fi
 operation=navigate
@@ -14,6 +14,7 @@ case $name in
   up) letter=k; step=-1; tmux_dir=U ;;
   right) letter=l; step=1; tmux_dir=R ;;
   tab) letter=t ;; horizontal) letter=u ;; vertical) letter=i ;; close) letter=w ;;
+  clear) operation=clear; letter= ;;
   *) usage ;;
 esac
 if [[ $operation == resize && $name != left && $name != right && $name != up && $name != down ]]; then usage; fi
@@ -41,6 +42,52 @@ editor_name() {
 
 herdr=${HERDR_BIN_PATH:-herdr}
 herdr_pane=${HERDR_ACTIVE_PANE_ID:-${HERDR_PANE_ID:-}}
+tmux_cmd=${TMUX_BIN_PATH:-tmux}
+tmux_pane=${TMUX_PANE:-}
+
+# The shell command exits between presses, so keep one short-lived state per pane.
+boundary_timeout=${EDGER_BOUNDARY_TIMEOUT_MS:-700}
+flash_ms=${EDGER_FLASH_MS:-150}
+[[ $boundary_timeout =~ ^[1-9][0-9]*$ && $flash_ms =~ ^[1-9][0-9]*$ ]] || {
+  echo 'edger: boundary timeout and flash duration must be positive milliseconds' >&2; exit 2;
+}
+if [[ $backend == tmux && -z $tmux_pane ]]; then
+  command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
+  tmux_pane=$("$tmux_cmd" display-message -p '#{pane_id}')
+fi
+state_dir=${EDGER_STATE_DIR:-${XDG_RUNTIME_DIR:-$HOME/.cache}/edger}
+if [[ $backend == tmux ]]; then state_context=${TMUX:-}
+else state_context=${HERDR_SOCKET_PATH:-}; fi
+state_key=$(printf '%s' "$backend:$state_context:${tmux_pane:-$herdr_pane}" | cksum)
+state_file=$state_dir/${state_key// /-}
+state_clear() { rm -f -- "$state_file"; }
+state_save() {
+  mkdir -p -- "$state_dir"
+  chmod 700 -- "$state_dir"
+  (umask 077; printf '%s %s %s %s\n' "$1" "$dir" "$now" "$now" > "$state_file.$$")
+  mv -f -- "$state_file.$$" "$state_file"
+}
+state_load() {
+  phase='' armed_dir='' armed_at='' last_press=''
+  if [[ -f $state_file ]]; then read -r phase armed_dir armed_at last_press < "$state_file" || :; fi
+  if [[ ( $phase != split && $phase != outer ) || $armed_dir != "$dir" ||
+        ! $armed_at =~ ^[0-9]+$ || ! $last_press =~ ^[0-9]+$ ]] ||
+     (( now < armed_at || now < last_press || now - armed_at > boundary_timeout * 1000 )); then
+    state_clear
+    phase=
+  fi
+}
+# Key-up events are not available in traditional terminals. Ignore a stream of
+# auto-repeat events after the first confirmation, rather than creating on hold.
+state_repeating() {
+  if (( now - last_press < 120000 )); then
+    (umask 077; printf '%s %s %s %s\n' "$phase" "$dir" "$armed_at" "$now" > "$state_file.$$")
+    mv -f -- "$state_file.$$" "$state_file"
+    return 0
+  fi
+  return 1
+}
+if [[ $operation != navigate ]]; then state_clear; [[ $operation != clear ]] || exit 0; fi
 herdr_process_is_editor() {
   "$herdr" pane process-info --pane "$herdr_pane" 2>/dev/null | jq -e '
     any(.result.process_info.foreground_processes[]?;
@@ -61,24 +108,45 @@ herdr_next() {
       then .[$i + $step][$field] else empty end'
 }
 herdr_cross() {
-  local response changed workspace current next
+  local response
   response=$("$herdr" pane focus --direction "$dir" --pane "$herdr_pane") || return 1
-  changed=$(jq -r 'if .result.focus.changed == false then false else true end' <<< "$response")
-  [[ $changed == false ]] || return 0
+  if [[ $(jq -r '.result.focus.changed' <<< "$response") != false ]]; then
+    state_clear
+  else
+    boundary_edge
+  fi
+}
+herdr_neighbor() {
+  local current workspace
   if [[ $dir == left || $dir == right ]]; then
     workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
     current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.tab_id')
-    next=$(herdr_next tab "$current" tab_id tabs "$workspace")
-    if [[ -n $next ]]; then "$herdr" tab focus "$next" >/dev/null; fi
+    herdr_next tab "$current" tab_id tabs "$workspace"
   else
     current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
-    next=$(herdr_next workspace "$current" workspace_id workspaces)
-    if [[ -n $next ]]; then "$herdr" workspace focus "$next" >/dev/null; fi
+    herdr_next workspace "$current" workspace_id workspaces
   fi
 }
+herdr_outer_focus() {
+  if [[ $dir == left || $dir == right ]]; then "$herdr" tab focus "$1" >/dev/null
+  else "$herdr" workspace focus "$1" >/dev/null; fi
+}
+herdr_outer_create() {
+  local workspace
+  if [[ $dir == right ]]; then
+    workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
+    "$herdr" tab create --workspace "$workspace" --focus >/dev/null
+  else
+    "$herdr" workspace create --focus >/dev/null
+  fi
+}
+herdr_flash() {
+  local position=top-left
+  [[ $dir == right ]] && position=top-right
+  [[ $dir == down ]] && position=bottom-left
+  "$herdr" notification show "${flash_arrow} ${1} edge" --position "$position" --sound none >/dev/null 2>&1 || :
+}
 
-tmux_cmd=${TMUX_BIN_PATH:-tmux}
-tmux_pane=${TMUX_PANE:-}
 tmux_run() { "$tmux_cmd" "$@"; }
 tmux_editor() {
   local tty name
@@ -113,26 +181,122 @@ tmux_neighbor() {
     { ids[NR]=$1; if ($1==current) pos=NR }
     END { if (pos && pos+step>=1 && pos+step<=NR) print ids[pos+step] }'
 }
+tmux_sessions() {
+  tmux_run list-sessions -F '#{session_id} #{session_created}' | sort -k2,2n -k1.2,1n | awk '{print $1}'
+}
+tmux_outer_enabled() {
+  [[ $dir == left || $dir == right || ( ${EDGER_TMUX_SESSIONS:-0} == 1 && -n ${EDGER_TMUX_CLIENT_TTY:-} ) ]]
+}
+tmux_outer_neighbor() {
+  local current
+  if [[ $dir == left || $dir == right ]]; then
+    current=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
+    tmux_run list-windows -t "$current" -F '#{window_id}' | tmux_neighbor "$current"
+  else
+    current=$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}')
+    tmux_sessions | tmux_neighbor "$current"
+  fi
+}
+tmux_outer_focus() {
+  if [[ $dir == left || $dir == right ]]; then tmux_run select-window -t "$1"
+  else tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$1"; fi
+}
+tmux_outer_create() {
+  local window session cwd
+  if [[ $dir == right ]]; then
+    window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
+    tmux_run new-window -a -t "$window" -c '#{pane_current_path}'
+  else
+    cwd=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_current_path}')
+    session=$(tmux_run new-session -d -P -F '#{session_id}' -c "$cwd")
+    tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$session"
+  fi
+}
+tmux_flash() {
+  local window previous token delay style
+  window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
+  style=fg=colour208
+  [[ $1 == outer ]] && style=fg=colour196
+  previous=$(tmux_run show-option -wqv -t "$window" @edger-flash-previous 2>/dev/null || :)
+  if [[ -z $(tmux_run show-option -wqv -t "$window" @edger-flash-token 2>/dev/null || :) ]]; then
+    previous=$(tmux_run show-option -wqv -t "$window" pane-active-border-style 2>/dev/null || :)
+    tmux_run set-option -wq -t "$window" @edger-flash-previous "$previous"
+  fi
+  token="$now-$RANDOM"
+  tmux_run set-option -wq -t "$window" @edger-flash-token "$token"
+  tmux_run set-option -wq -t "$window" pane-active-border-style "$style"
+  tmux_run display-message -d "$flash_ms" -t "$tmux_pane" "$flash_arrow $1 edge" >/dev/null 2>&1 || :
+  printf -v delay '%d.%03d' "$((flash_ms / 1000))" "$((flash_ms % 1000))"
+  (
+    sleep "$delay"
+    if [[ $(tmux_run show-option -wqv -t "$window" @edger-flash-token 2>/dev/null || :) == "$token" ]]; then
+      if [[ $(tmux_run show-option -wqv -t "$window" pane-active-border-style 2>/dev/null || :) == "$style" ]]; then
+        if [[ -n $previous ]]; then tmux_run set-option -wq -t "$window" pane-active-border-style "$previous"
+        else tmux_run set-option -wuq -t "$window" pane-active-border-style; fi
+      fi
+      tmux_run set-option -wuq -t "$window" @edger-flash-token
+      tmux_run set-option -wuq -t "$window" @edger-flash-previous
+    fi
+  ) >/dev/null 2>&1 &
+}
+
+outer_enabled() {
+  [[ $backend == herdr ]] || tmux_outer_enabled
+}
+outer_neighbor() {
+  if [[ $backend == herdr ]]; then herdr_neighbor; else tmux_outer_neighbor; fi
+}
+outer_focus() {
+  if [[ $backend == herdr ]]; then herdr_outer_focus "$1"; else tmux_outer_focus "$1"; fi
+}
+outer_create() {
+  if [[ $backend == herdr ]]; then herdr_outer_create; else tmux_outer_create; fi
+}
+boundary_flash() {
+  case $dir in
+    left) flash_arrow='←' ;; right) flash_arrow='→' ;;
+    up) flash_arrow='↑' ;; down) flash_arrow='↓' ;;
+  esac
+  if [[ $backend == herdr ]]; then herdr_flash "$1"; else tmux_flash "$1" || :; fi
+}
+boundary_edge() {
+  local target
+  now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
+  [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
+  state_load
+  if [[ -z $phase ]] || ! outer_enabled; then
+    state_save split
+    boundary_flash split
+    return
+  fi
+  if state_repeating; then return; fi
+  target=$(outer_neighbor)
+  if [[ -n $target ]]; then
+    outer_focus "$target"
+    state_clear
+  elif [[ $phase == split ]]; then
+    if [[ $step == 1 ]]; then state_save outer; else state_clear; fi
+    boundary_flash outer
+  elif [[ $step == 1 ]]; then
+    outer_create
+    state_clear
+  else
+    state_clear
+    boundary_flash outer
+  fi
+}
 
 tmux_cross() {
-  local edge window next
+  local edge
   case $dir in
     left) edge=pane_at_left ;; right) edge=pane_at_right ;;
     up) edge=pane_at_top ;; down) edge=pane_at_bottom ;;
   esac
   if [[ $(tmux_run display-message -p -t "$tmux_pane" "#{${edge}}") == 0 ]]; then
     tmux_run select-pane -t "$tmux_pane" "-$tmux_dir"
-    return
-  fi
-  if [[ $dir == left || $dir == right ]]; then
-    window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
-    next=$(tmux_run list-windows -t "$window" -F '#{window_id}' | tmux_neighbor "$window")
-    if [[ -n $next ]]; then tmux_run select-window -t "$next"; fi
-  elif [[ ${EDGER_TMUX_SESSIONS:-0} == 1 && -n ${EDGER_TMUX_CLIENT_TTY:-} ]]; then
-    local current
-    current=$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}')
-    next=$(tmux_run list-sessions -F '#{session_id}' | tmux_neighbor "$current")
-    if [[ -n $next ]]; then tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$next"; fi
+    state_clear
+  else
+    boundary_edge
   fi
 }
 
@@ -166,7 +330,6 @@ case $backend in
     fi ;;
   tmux)
     command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
-    [[ -n $tmux_pane ]] || tmux_pane=$(tmux_run display-message -p '#{pane_id}')
     if [[ $mode == normal ]] && tmux_editor; then
       tmux_run send-keys -t "$tmux_pane" "$key"
     elif [[ $operation == navigate ]]; then
