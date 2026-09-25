@@ -1,6 +1,10 @@
 * Edger
 
-Edger moves with one press through Emacs or Neovim windows, Herdr or tmux panes, then existing tabs and workspaces. Left/right moves through tabs (tmux windows); up/down moves through workspaces (tmux sessions). At the rightmost tab or bottommost workspace, two same-direction presses within 700 ms create a new one. If you just navigated there, Edger waits until you stop pressing that direction for 400 ms before the first press can arm creation. Rapid presses at the edge restart that pause. Left/up stops at the first tab or workspace without creating anything. A successful move or different direction clears pending creation. Edger also resizes editor splits first, and splits or closes windows in the focused editor or multiplexer.
+Edger seamlessly moves through Herdr/Tmux panes and Emacs/Neovim splits. =alt-h/j/k/l= moves focus between all splits as if it were one app.
+
+Tabs grow rightward; workspaces grow downward. When you hit the horizontal edge, hit =alt-h/l= to navigate to the neighbouring Herd/tmux tab. And when you hit the vertical edge, hit =alt-j/k= to navigate to the neighbourign Herdr workspace or tmux session. Oh, and if you're on last tab, force through with double =alt-l= to create a new Herdr/Tmux tab. Same story if you're on the last workspace/session: force through with double =alt-j= to create a new Herdr workspace or tmux session.
+
+Modifer =alt= can be changed to =ctrl= or =ctrl+alt= and we also support customizable keys for creating and closing splits.
 
 | Key | Direction | Herdr pane edge    | tmux pane edge               |
 |-----+-----------+--------------------+------------------------------|
@@ -15,9 +19,8 @@ M-l  at the last tab -> stay put (pause first if you just navigated here)
 M-l  again           -> create a tab to the right
 #+end_src
 
-Tabs grow rightward; workspaces grow downward. =M-j= uses the same creation rule at the bottom. =M-h= at the first tab and =M-k= at the first workspace stop without a message. Standalone editors without a multiplexer keep local-only navigation. Edger does not control desktop windows.
 
-Alt+h/j/k/l navigates. Alt+Shift+h/j/k/l resizes a divider on the relevant axis, starting in the editor and falling back to the multiplexer. Without a matching split, resizing does nothing. Alt+u splits below and Alt+i splits right. Alt+w closes the current editor window while multiple windows remain, then the current editor tab while multiple tabs remain. With one window in one tab, it closes the multiplexer pane. Closing the last pane closes its tab and, where applicable, its workspace or session. Edger leaves the last workspace or session intact. Use Ctrl or Ctrl+Alt instead of Alt if your terminal delivers those keys reliably; keep one modifier across all layers.
+Also! =alt-i= will split vertically, =alt-u= will split horizontally, and =alt-w= will close the current window/pane. All keys customizable.
 
 ** Emacs
 
