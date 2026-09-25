@@ -1,10 +1,10 @@
 * Edger
 
-Edger seamlessly moves through Herdr/Tmux panes and Emacs/Neovim splits. =alt-h/j/k/l= moves focus between all splits as if it were one app.
+Seamlessly move through [[https://herdr.dev/][Herdr]]/[[https://tmux.app/][tmux]] panes & [[https://www.gnu.org/software/emacs/][Emacs]]/[[https://neovim.io/][Neovim]] splits. =alt-h/j/k/l= navigates between all splits as if it were one app.
 
-Tabs grow rightward; workspaces grow downward. When you hit the horizontal edge, hit =alt-h/l= to navigate to the neighbouring Herd/tmux tab. And when you hit the vertical edge, hit =alt-j/k= to navigate to the neighbourign Herdr workspace or tmux session. Oh, and if you're on last tab, force through with double =alt-l= to create a new Herdr/Tmux tab. Same story if you're on the last workspace/session: force through with double =alt-j= to create a new Herdr workspace or tmux session.
+Tabs grow rightward; workspaces grow downward. When you hit the horizontal edge, =alt-h/l= will navigate to the neighbouring Herd/tmux tab. And when you hit the vertical edge, =alt-j/k= will navigate to the neighbouring Herdr workspace or tmux session. Oh, and if you're on last tab, force through with double =alt-l= to create a new Herdr/Tmux tab. Same story if you're on the last workspace/session: force through with double =alt-j= to create a new Herdr workspace or tmux session.
 
-Modifer =alt= can be changed to =ctrl= or =ctrl+alt= and we also support customizable keys for creating and closing splits.
+Modifer =alt= can be customized to =ctrl= or =ctrl+alt=.
 
 | Key | Direction | Herdr pane edge    | tmux pane edge               |
 |-----+-----------+--------------------+------------------------------|
@@ -12,13 +12,6 @@ Modifer =alt= can be changed to =ctrl= or =ctrl+alt= and we also support customi
 | j   | down      | next workspace     | next session                |
 | k   | up        | previous workspace | previous session            |
 | l   | right     | next tab           | next window                  |
-
-#+begin_src text
-M-l  at a pane edge   -> switch to the next tab, if one exists
-M-l  at the last tab -> stay put (pause first if you just navigated here)
-M-l  again           -> create a tab to the right
-#+end_src
-
 
 Also! =alt-i= will split vertically, =alt-u= will split horizontally, and =alt-w= will close the current window/pane. All keys customizable.
 
@@ -73,7 +66,7 @@ The plugin maps normal-mode keys using the chosen modifier. Shifted direction ke
 
 ** Herdr
 
-Install the plugin, then put this Alt keymap in =~/.config/herdr/config.toml=:
+Install the plugin, then put this keymap in =~/.config/herdr/config.toml=:
 
 #+begin_src sh
 herdr plugin install suderman/edger
@@ -102,7 +95,7 @@ command = [
 ]
 #+end_src
 
-The prefix keys keep direct pane movement and splits available when an editor has focus. Herdr does not let a plugin register a keymap; its config binds each action separately. To configure the modifier and action letters in Nix, generate the eleven shell bindings as in the personal Herdr module:
+The prefix keys keep direct pane movement and splits available when an editor has focus. Herdr does not let a plugin register a keymap; its config binds each action separately. To configure the modifier and action letters in Nix, generate the eleven shell bindings as in this example module:
 
 #+begin_src nix
 {lib, ...}: let
@@ -139,7 +132,7 @@ in {
 }
 #+end_src
 
-The Nix example follows the personal Herdr module and renders all eleven bindings. Change =modifier= and =binds.action= to match the other integrations, and set =edger= to the executable in your checkout or package. It calls the CLI directly, so it does not require installing the Herdr plugin. The final =${key}= in each command forwards the actual chord into a focused editor. In plain TOML, replace the Alt =command= array with your own eleven shell entries when changing keys. For example, one entry in that array would be:
+In plain TOML, replace the Alt =command= array with your own eleven shell entries when changing keys. For example, one entry in that array would be:
 
 #+begin_src toml
 [keys]
@@ -147,8 +140,6 @@ command = [
   { key = "ctrl+alt+s", type = "shell", command = "/absolute/path/to/edger/bin/edger horizontal ctrl+alt+s" },
 ]
 #+end_src
-
-Do not add another =command= array alongside the Alt one. Bind the same custom action letters in Emacs or Neovim. Ctrl+Shift key delivery depends on the terminal. Run =herdr server reload-config= after editing =config.toml=.
 
 ** tmux
 
