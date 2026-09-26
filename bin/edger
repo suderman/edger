@@ -137,7 +137,11 @@ herdr_next() {
       then .[$i + $step][$field] else empty end'
 }
 herdr_cross() {
-  local response
+  local response edges
+  edges=$("$herdr" pane edges --pane "$herdr_pane") || return 1
+  if jq -e --arg dir "$dir" '.result.edges | .layout.zoomed and (.[$dir] == false)' <<< "$edges" >/dev/null; then
+    "$herdr" pane zoom --pane "$herdr_pane" --off >/dev/null
+  fi
   response=$("$herdr" pane focus --direction "$dir" --pane "$herdr_pane") || return 1
   if [[ $(jq -r '.result.focus.changed' <<< "$response") != false ]]; then
     state_clear
@@ -271,15 +275,18 @@ boundary_edge() {
 }
 
 tmux_cross() {
-  local edge
+  local edge zoomed
   case $dir in
     left) edge=pane_at_left ;; right) edge=pane_at_right ;;
     up) edge=pane_at_top ;; down) edge=pane_at_bottom ;;
   esac
+  zoomed=$(tmux_run display-message -p -t "$tmux_pane" '#{window_zoomed_flag}')
+  [[ $zoomed != 1 ]] || tmux_run resize-pane -Z -t "$tmux_pane"
   if [[ $(tmux_run display-message -p -t "$tmux_pane" "#{${edge}}") == 0 ]]; then
     tmux_run select-pane -t "$tmux_pane" "-$tmux_dir"
     state_clear
   else
+    [[ $zoomed != 1 ]] || tmux_run resize-pane -Z -t "$tmux_pane"
     boundary_edge
   fi
 }

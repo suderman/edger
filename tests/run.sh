@@ -13,6 +13,7 @@ case "$1 $2" in
   'pane process-info')
     printf '{"result":{"process_info":{"foreground_processes":[{"name":".emacsclient-wr","argv":["%s"]}]}}}\n' "${EDGER_TEST_PROCESS:-/bin/bash}" ;;
   'pane focus') printf '{"result":{"focus":{"changed":%s}}}\n' "${EDGER_TEST_MOVED:-false}" ;;
+  'pane edges') printf '{"result":{"edges":{"layout":{"zoomed":%s},"left":%s,"right":%s,"up":%s,"down":%s}}}\n' "${EDGER_TEST_ZOOMED:-false}" "${EDGER_TEST_EDGE:-true}" "${EDGER_TEST_EDGE:-true}" "${EDGER_TEST_EDGE:-true}" "${EDGER_TEST_EDGE:-true}" ;;
   'pane current') printf '{"result":{"pane":{"workspace_id":"%s","tab_id":"%s"}}}\n' "${EDGER_TEST_WORKSPACE:-w1}" "${EDGER_TEST_TAB:-t2}" ;;
   'tab list') printf '{"result":{"tabs":[{"tab_id":"t1","number":1},{"tab_id":"t2","number":2},{"tab_id":"t3","number":3}]}}\n' ;;
   'workspace list') if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '{"result":{"workspaces":[{"workspace_id":"w1"}]}}\n'; else printf '{"result":{"workspaces":[{"workspace_id":"w1","number":1},{"workspace_id":"w2","number":2},{"workspace_id":"w3","number":3}]}}\n'; fi ;;
@@ -27,7 +28,10 @@ case "$1" in
   display-message)
     case "${*: -1}" in
       '#{pane_tty}') echo /dev/null ;;
-      '#{pane_at_left}'|'#{pane_at_right}'|'#{pane_at_top}'|'#{pane_at_bottom}') echo "${EDGER_TEST_EDGE:-1}" ;;
+      '#{window_zoomed_flag}') if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]]; then echo 1; else echo 0; fi ;;
+      '#{pane_at_left}'|'#{pane_at_right}'|'#{pane_at_top}'|'#{pane_at_bottom}')
+        if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]] && ! grep -Fx 'resize-pane -Z -t %1' "$EDGER_TEST_LOG" >/dev/null; then echo 1
+        else echo "${EDGER_TEST_EDGE:-1}"; fi ;;
       '#{window_id}') echo "${EDGER_TEST_WINDOW:-@1}" ;;
       '#{session_id}') echo "${EDGER_TEST_SESSION:-\$1}" ;;
       '#{session_windows}'|'#{window_panes}') echo "${EDGER_TEST_PANES:-2}" ;;
@@ -68,6 +72,16 @@ reset_log
 EDGER_TEST_PROCESS=/bin/bash EDGER_TEST_MOVED=true "$edger" down
 assert_log 'pane focus --direction down --pane p1'
 assert_absent 'workspace list'
+assert_absent 'pane zoom'
+reset_log
+EDGER_TEST_ZOOMED=true EDGER_TEST_EDGE=false EDGER_TEST_MOVED=true press right
+assert_log 'pane zoom --pane p1 --off'
+assert_log 'pane focus --direction right --pane p1'
+assert_absent 'tab focus'
+reset_log
+EDGER_TEST_ZOOMED=true EDGER_TEST_EDGE=true press right
+assert_absent 'pane zoom'
+assert_log 'tab focus t3'
 reset_log
 press right
 assert_log 'pane focus --direction right --pane p1'
@@ -203,6 +217,17 @@ reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_EDGE=0 "$edger" cross right
 assert_log 'select-pane -t %1 -R'
 assert_absent 'list-windows'
+assert_absent 'resize-pane -Z'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_ZOOMED=1 EDGER_TEST_EDGE=0 "$edger" cross left
+assert_log 'resize-pane -Z -t %1'
+assert_log 'select-pane -t %1 -L'
+[[ $(grep -Fc 'resize-pane -Z -t %1' "$EDGER_TEST_LOG") == 1 ]] || { echo 'Zoom toggled more than once when moving to a split' >&2; exit 1; }
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_ZOOMED=1 EDGER_TEST_EDGE=1 EDGER_TEST_WINDOW=@2 press left
+[[ $(grep -Fc 'resize-pane -Z -t %1' "$EDGER_TEST_LOG") == 2 ]] || { echo 'Zoom not restored at split edge' >&2; exit 1; }
+assert_log 'select-window -t @1'
+assert_absent 'select-pane'
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 press right
 assert_log 'select-window -t @2'
@@ -362,5 +387,39 @@ PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-q
 PATH=$system_path tmux -L "$server" set-option -g @edger-key C-M
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_CLIENT_TTY=' >/dev/null
+# A real zoomed tmux pane reports every edge until zoom is cleared.
+system_tmux=$(PATH=$system_path command -v tmux)
+printf -v system_tmux %q "$system_tmux"
+cat > "$tmp/bin/real-tmux" <<SH
+#!/usr/bin/env bash
+exec $system_tmux -L "\$EDGER_TEST_SERVER" "\$@"
+SH
+chmod +x "$tmp/bin/real-tmux"
+export EDGER_TEST_SERVER=$server
+real_tmux() { PATH=$system_path tmux -L "$server" "$@"; }
+real_tmux split-window -h -t edger-test:0
+left=$(real_tmux display-message -p -t edger-test:0.0 '#{pane_id}')
+right=$(real_tmux display-message -p -t edger-test:0.1 '#{pane_id}')
+real_tmux resize-pane -Z -t "$right"
+TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$right "$edger" cross left
+[[ $(real_tmux display-message -p -t "$left" '#{window_zoomed_flag} #{pane_active}') == '0 1' ]] || { echo 'Zoomed tmux pane did not reveal adjacent split' >&2; exit 1; }
+real_tmux resize-pane -Z -t "$left"
+TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$left "$edger" cross left
+[[ $(real_tmux display-message -p -t "$left" '#{window_zoomed_flag} #{pane_active}') == '1 1' ]] || { echo 'Zoom changed at tmux split edge' >&2; exit 1; }
+real_tmux new-window -t edger-test:1
+previous=$(real_tmux display-message -p -t edger-test:0 '#{window_id}')
+real_tmux split-window -h -t edger-test:1
+edge_pane=$(real_tmux display-message -p -t edger-test:1.0 '#{pane_id}')
+real_tmux resize-pane -Z -t "$edge_pane"
+TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$edge_pane "$edger" cross left
+[[ $(real_tmux display-message -p -t edger-test: '#{window_id}') == "$previous" &&
+   $(real_tmux display-message -p -t "$edge_pane" '#{window_zoomed_flag}') == 1 ]] || { echo 'Zoomed tmux edge failed to keep zoom while switching windows' >&2; exit 1; }
+real_tmux new-window -t edger-test:2
+real_tmux split-window -v -t edger-test:2
+upper=$(real_tmux display-message -p -t edger-test:2.0 '#{pane_id}')
+lower=$(real_tmux display-message -p -t edger-test:2.1 '#{pane_id}')
+real_tmux resize-pane -Z -t "$lower"
+TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$lower "$edger" cross up
+[[ $(real_tmux display-message -p -t "$upper" '#{window_zoomed_flag} #{pane_active}') == '0 1' ]] || { echo 'Zoomed tmux pane did not reveal upper split' >&2; exit 1; }
 PATH=$system_path tmux -L "$server" kill-server
 echo 'edger routing, Neovim, and tmux checks passed'

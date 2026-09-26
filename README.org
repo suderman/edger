@@ -13,6 +13,8 @@ Modifer =alt= can be customized to =ctrl= or =ctrl+alt=.
 | k   | up        | previous workspace | previous session            |
 | l   | right     | next tab           | next window                  |
 
+When a Herdr or tmux pane is zoomed, moving toward a neighboring split unzooms it first. At a split edge, zoom stays on while Edger follows the usual tab or workspace navigation.
+
 Also! =alt-i= will split vertically, =alt-u= will split horizontally, and =alt-w= will close the current window/pane. All keys customizable.
 
 ** Emacs
