@@ -70,4 +70,17 @@ require("edger").setup({ modifier = "C", actions = { horizontal = "s", vertical 
   bin = vim.env.EDGER_TEST_BIN })
 assert(vim.fn.maparg("<C-s>", "n") ~= "", "Custom split key should be mapped")
 assert(vim.fn.maparg("<C-q>", "n") ~= "", "Custom close key should be mapped")
+vim.cmd.only()
+vim.cmd.vsplit()
+local edge = vim.api.nvim_get_current_win()
+vim.cmd.wincmd("l")
+local wrong_way = vim.api.nvim_get_current_win()
+vim.api.nvim_set_current_win(edge)
+local wincmd = vim.cmd.wincmd
+vim.cmd.wincmd = function() vim.api.nvim_set_current_win(wrong_way) end
+vim.cmd.EdgerLeft()
+vim.cmd.wincmd = wincmd
+calls = vim.fn.readfile(vim.env.EDGER_TEST_LOG)
+assert(vim.api.nvim_get_current_win() == edge and calls[#calls] == "cross left",
+  "A wrong-way window jump at the left edge should cross instead")
 vim.cmd.qa({ bang = true })

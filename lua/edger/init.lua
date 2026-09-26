@@ -18,10 +18,17 @@ end
 
 local function navigate(direction, letter, opts)
   local before = vim.api.nvim_get_current_win()
+  local axis = (letter == "h" or letter == "l") and 2 or 1
+  local start = vim.api.nvim_win_get_position(before)[axis]
   vim.cmd.wincmd(letter)
-  if vim.api.nvim_get_current_win() ~= before then
+  local after = vim.api.nvim_get_current_win()
+  local finish = vim.api.nvim_win_get_position(after)[axis]
+  local step = (letter == "l" or letter == "j") and 1 or -1
+  local forward = (finish - start) * step > 0
+  if after ~= before and forward then
     cross(opts, "clear")
   else
+    if after ~= before then vim.api.nvim_set_current_win(before) end
     cross(opts, direction)
   end
 end
