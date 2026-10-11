@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Route editor-aware window actions through Herdr or tmux.
 set -euo pipefail
+# Every key press starts this script anew, and starting a process can cost
+# 40-160 ms (on Android, for example). Keep state, parsing, and foreground
+# detection in Bash builtins, and ask tmux for everything in one query.
+umask 077
 
 usage() { echo 'usage: edger [cross] [resize] left|down|up|right [forward-key] | [cross] horizontal|vertical|close [forward-key] | [cross] clear' >&2; exit 2; }
 mode=normal
@@ -51,54 +55,68 @@ creation_idle=${EDGER_CREATION_IDLE_MS:-400}
 [[ $boundary_timeout =~ ^[1-9][0-9]*$ && $creation_idle =~ ^[1-9][0-9]*$ ]] || {
   echo 'edger: boundary timeout and creation idle must be positive milliseconds' >&2; exit 2;
 }
-if [[ $backend == tmux && -z $tmux_pane ]]; then
-  command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
-  tmux_pane=$("$tmux_cmd" display-message -p '#{pane_id}')
+case $backend in
+  herdr)
+    command -v "$herdr" >/dev/null || { echo "edger: Herdr executable not found: $herdr" >&2; exit 1; }
+    [[ -n $herdr_pane ]] || { echo 'edger: no Herdr pane id' >&2; exit 1; } ;;
+  tmux)
+    command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; } ;;
+  *) echo "edger: unknown backend: $backend" >&2; exit 2 ;;
+esac
+
+tmux_run() { "$tmux_cmd" "$@"; }
+if [[ $backend == tmux ]]; then
+  [[ -n $tmux_pane ]] || tmux_pane=$(tmux_run display-message -p '#{pane_id}')
+  # One query for every value a press may need. The unit separator keeps
+  # empty fields, such as a detached session's client, in place.
+  sep=$'\x1f'
+  info=$(tmux_run display-message -p -t "$tmux_pane" \
+    "#{pane_pid}$sep#{pane_current_command}$sep#{pane_tty}$sep#{window_zoomed_flag}$sep#{pane_at_left}$sep#{pane_at_right}$sep#{pane_at_top}$sep#{pane_at_bottom}$sep#{window_id}$sep#{session_id}$sep#{session_windows}$sep#{window_panes}$sep#{server_sessions}$sep#{client_tty}$sep#{pane_current_path}")
+  IFS=$sep read -r pane_pid pane_command pane_tty zoomed at_left at_right at_top at_bottom \
+    window_id session_id session_windows window_panes server_sessions client_tty pane_path <<< "$info"
+  # Key bindings pass the pressing client; editor integrations use the pane's.
+  EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$client_tty}
 fi
+
 state_dir=${EDGER_STATE_DIR:-${XDG_RUNTIME_DIR:-$HOME/.cache}/edger}
+state_path() {
+  local id=$1
+  printf -v "$2" '%s/%s' "$state_dir" "${id//[^[:alnum:]_.-]/_}"
+}
 if [[ $backend == tmux ]]; then
   # TMUX ends in server PID and session index; only the socket survives a session switch.
   state_context=${TMUX:-}
   state_context=${state_context%,*,*}
 else state_context=${HERDR_SOCKET_PATH:-}; fi
-state_key=$(printf '%s' "$backend:$state_context:${tmux_pane:-$herdr_pane}" | cksum)
-state_file=$state_dir/${state_key// /-}
-state_clear() { rm -f -- "$state_file"; }
+state_path "$backend:$state_context:${tmux_pane:-$herdr_pane}" state_file
+# Emptying a file clears it without starting rm.
+state_clear() { [[ ! -s $state_file ]] || : > "$state_file"; }
+state_mkdir() { [[ -d $state_dir ]] || mkdir -p -- "$state_dir"; }
 # Outer navigation changes the active pane. Keep its recent-key history per client
 # (or Herdr socket), while confirmation remains isolated to the current pane.
-travel_path() {
-  local scope=$state_context key
-  if [[ $backend == tmux ]]; then
-    EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$("$tmux_cmd" display-message -p -t "$tmux_pane" '#{client_tty}')}
-    scope+=:${EDGER_TMUX_CLIENT_TTY:-$tmux_pane}
-  fi
-  key=$(printf '%s' "travel:$backend:$scope" | cksum)
-  travel_file=$state_dir/${key// /-}
-}
-travel_clear() { travel_path; rm -f -- "$travel_file"; }
+scope=$state_context
+[[ $backend != tmux ]] || scope+=:${EDGER_TMUX_CLIENT_TTY:-$tmux_pane}
+state_path "travel:$backend:$scope" travel_file
+travel_clear() { [[ ! -s $travel_file ]] || : > "$travel_file"; }
 travel_save() {
-  mkdir -p -- "$state_dir"
-  chmod 700 -- "$state_dir"
-  (umask 077; printf '%s %s\n' "$dir" "$now" > "$travel_file.$$")
-  mv -f -- "$travel_file.$$" "$travel_file"
+  state_mkdir
+  printf '%s %s\n' "$dir" "$now" > "$travel_file"
 }
 travel_recent() {
-  local previous_dir previous_at
-  [[ -f $travel_file ]] || return 1
+  local previous_dir='' previous_at=''
+  [[ -s $travel_file ]] || return 1
   read -r previous_dir previous_at < "$travel_file" || :
-  if [[ $previous_dir != "$dir" ]]; then rm -f -- "$travel_file"; return 1; fi
+  if [[ $previous_dir != "$dir" ]]; then travel_clear; return 1; fi
   [[ $previous_at =~ ^[0-9]+$ ]] &&
     (( now >= previous_at && now - previous_at < creation_idle * 1000 ))
 }
 state_save() {
-  mkdir -p -- "$state_dir"
-  chmod 700 -- "$state_dir"
-  (umask 077; printf '%s %s %s %s\n' "$1" "$dir" "$now" "$now" > "$state_file.$$")
-  mv -f -- "$state_file.$$" "$state_file"
+  state_mkdir
+  printf '%s %s %s %s\n' "$1" "$dir" "$now" "$now" > "$state_file"
 }
 state_load() {
   phase='' armed_dir='' armed_at='' last_press=''
-  if [[ -f $state_file ]]; then read -r phase armed_dir armed_at last_press < "$state_file" || :; fi
+  if [[ -s $state_file ]]; then read -r phase armed_dir armed_at last_press < "$state_file" || :; fi
   if [[ $phase != create || $armed_dir != "$dir" ||
         ! $armed_at =~ ^[0-9]+$ || ! $last_press =~ ^[0-9]+$ ]] ||
      (( now < armed_at || now < last_press || now - armed_at > boundary_timeout * 1000 )); then
@@ -110,8 +128,7 @@ state_load() {
 # auto-repeat events after the first confirmation, rather than creating on hold.
 state_repeating() {
   if (( now - last_press < 120000 )); then
-    (umask 077; printf '%s %s %s %s\n' "$phase" "$dir" "$armed_at" "$now" > "$state_file.$$")
-    mv -f -- "$state_file.$$" "$state_file"
+    printf '%s %s %s %s\n' "$phase" "$dir" "$armed_at" "$now" > "$state_file"
     return 0
   fi
   return 1
@@ -150,14 +167,13 @@ herdr_cross() {
   fi
 }
 herdr_neighbor() {
-  local current workspace
+  local current workspace tab
+  current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane | "\(.workspace_id) \(.tab_id)"')
+  read -r workspace tab <<< "$current"
   if [[ $dir == left || $dir == right ]]; then
-    workspace=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
-    current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.tab_id')
-    herdr_next tab "$current" tab_id tabs "$workspace"
+    target=$(herdr_next tab "$tab" tab_id tabs "$workspace")
   else
-    current=$("$herdr" pane current --pane "$herdr_pane" | jq -r '.result.pane.workspace_id')
-    herdr_next workspace "$current" workspace_id workspaces
+    target=$(herdr_next workspace "$workspace" workspace_id workspaces)
   fi
 }
 herdr_outer_focus() {
@@ -173,18 +189,6 @@ herdr_outer_create() {
     "$herdr" workspace create --focus >/dev/null
   fi
 }
-tmux_run() { "$tmux_cmd" "$@"; }
-tmux_editor() {
-  local tty name
-  tty=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_tty}')
-  # A foreground process owns '+' in ps STAT. Check executable argv[0] too,
-  # since emacsclient can be renamed by its wrapper.
-  local command
-  while read -r state name command; do
-    if [[ $state == *+* ]] && { editor_name "$name" || editor_name "${command%% *}"; }; then return 0; fi
-  done < <(ps -t "$tty" -o stat= -o comm= -o args= 2>/dev/null)
-  return 1
-}
 herdr_action() {
   local workspace count
   case $operation in
@@ -199,27 +203,96 @@ herdr_action() {
   esac
 }
 
-tmux_neighbor() {
-  awk -v current="$1" -v step="$step" '
-    { ids[NR]=$1; if ($1==current) pos=NR }
-    END { if (pos && pos+step>=1 && pos+step<=NR) print ids[pos+step] }'
+# Process stat lines are "PID (COMM) STATE PPID PGRP SESSION TTY TPGID ...";
+# COMM may hold spaces or parentheses, so split after its last ')'.
+proc_stat() {
+  local stat rest
+  read -r stat 2>/dev/null < "/proc/$1/stat" || return 1
+  proc_comm=${stat#*\(}
+  proc_comm=${proc_comm%\)*}
+  # Expansions, not a here-string: this runs for every process in a scan.
+  rest=${stat##*) }; rest=${rest#* }; rest=${rest#* }
+  proc_pgrp=${rest%% *}
+  rest=${rest#* }; rest=${rest#* }; rest=${rest#* }
+  proc_tpgid=${rest%% *}
 }
+tmux_editor_ps() {
+  local state name command
+  # A foreground process owns '+' in ps STAT. Check executable argv[0] too,
+  # since emacsclient can be renamed by its wrapper.
+  while read -r state name command; do
+    if [[ $state == *+* ]] && { editor_name "$name" || editor_name "${command%% *}"; }; then return 0; fi
+  done < <(ps -t "$pane_tty" -o stat= -o comm= -o args= 2>/dev/null)
+  return 1
+}
+tmux_editor() {
+  local tpgid children f pid argv0
+  # tmux names the foreground process group's leader, which covers editors
+  # started from a shell prompt.
+  editor_name "$pane_command" && return 0
+  # Without Linux /proc (macOS, for example), ask ps.
+  proc_stat "$pane_pid" || { tmux_editor_ps; return; }
+  tpgid=$proc_tpgid
+  # A pane shell at its prompt leads the foreground group. With no children,
+  # nothing else can be in it.
+  if [[ $tpgid == "$proc_pgrp" && -r /proc/$pane_pid/task/$pane_pid/children ]]; then
+    read -r children < "/proc/$pane_pid/task/$pane_pid/children" || :
+    [[ -n $children ]] || return 1
+  fi
+  # Look for an editor elsewhere in the foreground group, such as one started
+  # by git commit. Android lacks the children file and lists few processes.
+  for f in /proc/[0-9]*; do
+    pid=${f#/proc/}
+    proc_stat "$pid" || continue
+    [[ $proc_pgrp == "$tpgid" ]] || continue
+    editor_name "$proc_comm" && return 0
+    argv0=
+    read -r -d '' argv0 2>/dev/null < "/proc/$pid/cmdline" || :
+    editor_name "$argv0" && return 0
+  done
+  return 1
+}
+
+# Print the ID STEP places from CURRENT among IDS, if any.
+next_id() {
+  local current=$1 i
+  shift
+  local ids=("$@")
+  for i in "${!ids[@]}"; do
+    [[ ${ids[i]} == "$current" ]] || continue
+    i=$((i + step))
+    if (( i >= 0 && i < ${#ids[@]} )); then target=${ids[i]}; fi
+    return 0
+  done
+}
+# Sessions in creation order, ties broken by ID.
 tmux_sessions() {
-  tmux_run list-sessions -F '#{session_id} #{session_created}' | sort -k2,2n -k1.2,1n | awk '{print $1}'
+  local list created id key i
+  local -a keys=()
+  sessions=()
+  list=$(tmux_run list-sessions -F '#{session_created} #{session_id}')
+  while read -r created id; do
+    key=$(( created * 1000000 + ${id#\$} ))
+    i=${#keys[@]}
+    while (( i > 0 && keys[i - 1] > key )); do
+      keys[i]=${keys[i - 1]}; sessions[i]=${sessions[i - 1]}; i=$((i - 1))
+    done
+    keys[i]=$key; sessions[i]=$id
+  done <<< "$list"
 }
 tmux_outer_enabled() {
-  [[ $dir == left || $dir == right ]] && return 0
-  EDGER_TMUX_CLIENT_TTY=${EDGER_TMUX_CLIENT_TTY:-$(tmux_run display-message -p -t "$tmux_pane" '#{client_tty}')}
-  [[ -n $EDGER_TMUX_CLIENT_TTY ]]
+  [[ $dir == left || $dir == right || -n $EDGER_TMUX_CLIENT_TTY ]]
 }
 tmux_outer_neighbor() {
-  local current
+  local windows
+  local -a ids
   if [[ $dir == left || $dir == right ]]; then
-    current=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
-    tmux_run list-windows -t "$current" -F '#{window_id}' | tmux_neighbor "$current"
+    windows=$(tmux_run list-windows -t "$window_id" -F '#{window_id}')
+    mapfile -t ids <<< "$windows"
+    next_id "$window_id" "${ids[@]}"
   else
-    current=$(tmux_run display-message -p -t "$tmux_pane" '#{session_id}')
-    tmux_sessions | tmux_neighbor "$current"
+    tmux_sessions
+    next_id "$session_id" "${sessions[@]}"
   fi
 }
 tmux_outer_focus() {
@@ -227,13 +300,11 @@ tmux_outer_focus() {
   else tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$1"; fi
 }
 tmux_outer_create() {
-  local window session cwd
+  local session
   if [[ $dir == right ]]; then
-    window=$(tmux_run display-message -p -t "$tmux_pane" '#{window_id}')
-    tmux_run new-window -a -t "$window" -c '#{pane_current_path}'
+    tmux_run new-window -a -t "$window_id" -c '#{pane_current_path}'
   else
-    cwd=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_current_path}')
-    session=$(tmux_run new-session -d -P -F '#{session_id}' -c "$cwd")
+    session=$(tmux_run new-session -d -P -F '#{session_id}' -c "$pane_path")
     tmux_run switch-client -c "$EDGER_TMUX_CLIENT_TTY" -t "$session"
   fi
 }
@@ -241,6 +312,7 @@ outer_enabled() {
   [[ $backend == herdr ]] || tmux_outer_enabled
 }
 outer_neighbor() {
+  target=
   if [[ $backend == herdr ]]; then herdr_neighbor; else tmux_outer_neighbor; fi
 }
 outer_focus() {
@@ -250,12 +322,11 @@ outer_create() {
   if [[ $backend == herdr ]]; then herdr_outer_create; else tmux_outer_create; fi
 }
 boundary_edge() {
-  local target
   if ! outer_enabled; then state_clear; return; fi
-  now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME/./}}
+  # EPOCHREALTIME uses the locale's decimal separator.
+  now=${EDGER_TEST_NOW_US:-${EPOCHREALTIME//[!0-9]/}}
   [[ $now =~ ^[0-9]+$ ]] || { echo 'edger: invalid boundary clock' >&2; return 2; }
-  travel_path
-  target=$(outer_neighbor)
+  outer_neighbor
   if [[ -n $target ]]; then
     state_clear
     outer_focus "$target"
@@ -270,19 +341,27 @@ boundary_edge() {
     travel_save
   else
     state_clear
-    rm -f -- "$travel_file"
+    travel_clear
   fi
 }
 
 tmux_cross() {
-  local edge zoomed
+  local at_edge
   case $dir in
-    left) edge=pane_at_left ;; right) edge=pane_at_right ;;
-    up) edge=pane_at_top ;; down) edge=pane_at_bottom ;;
+    left) at_edge=$at_left ;; right) at_edge=$at_right ;;
+    up) at_edge=$at_top ;; down) at_edge=$at_bottom ;;
   esac
-  zoomed=$(tmux_run display-message -p -t "$tmux_pane" '#{window_zoomed_flag}')
-  [[ $zoomed != 1 ]] || tmux_run resize-pane -Z -t "$tmux_pane"
-  if [[ $(tmux_run display-message -p -t "$tmux_pane" "#{${edge}}") == 0 ]]; then
+  # A zoomed pane reports every edge, so ask again after unzooming.
+  if [[ $zoomed == 1 ]]; then
+    tmux_run resize-pane -Z -t "$tmux_pane"
+    case $dir in
+      left) at_edge=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_at_left}') ;;
+      right) at_edge=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_at_right}') ;;
+      up) at_edge=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_at_top}') ;;
+      down) at_edge=$(tmux_run display-message -p -t "$tmux_pane" '#{pane_at_bottom}') ;;
+    esac
+  fi
+  if [[ $at_edge == 0 ]]; then
     tmux_run select-pane -t "$tmux_pane" "-$tmux_dir"
     state_clear
   else
@@ -292,7 +371,6 @@ tmux_cross() {
 }
 
 tmux_action() {
-  local count
   case $operation in
     resize)
       local amount=3
@@ -301,16 +379,13 @@ tmux_action() {
     horizontal) tmux_run split-window -t "$tmux_pane" -c '#{pane_current_path}' ;;
     vertical) tmux_run split-window -h -t "$tmux_pane" -c '#{pane_current_path}' ;;
     close)
-      count=$(tmux_run list-sessions -F '#{session_id}' | wc -l)
-      if [[ $count == 1 && $(tmux_run display-message -p -t "$tmux_pane" '#{session_windows}') == 1 && $(tmux_run display-message -p -t "$tmux_pane" '#{window_panes}') == 1 ]]; then return; fi
+      if [[ $server_sessions == 1 && $session_windows == 1 && $window_panes == 1 ]]; then return; fi
       tmux_run kill-pane -t "$tmux_pane" ;;
   esac
 }
 
 case $backend in
   herdr)
-    command -v "$herdr" >/dev/null || { echo "edger: Herdr executable not found: $herdr" >&2; exit 1; }
-    [[ -n $herdr_pane ]] || { echo 'edger: no Herdr pane id' >&2; exit 1; }
     if [[ $mode == normal ]] && herdr_process_is_editor; then
       "$herdr" pane send-keys "$herdr_pane" "$key" >/dev/null
     elif [[ $operation == navigate ]]; then
@@ -319,7 +394,6 @@ case $backend in
       herdr_action
     fi ;;
   tmux)
-    command -v "$tmux_cmd" >/dev/null || { echo "edger: tmux executable not found: $tmux_cmd" >&2; exit 1; }
     if [[ $mode == normal ]] && tmux_editor; then
       tmux_run send-keys -t "$tmux_pane" "$key"
     elif [[ $operation == navigate ]]; then
@@ -327,5 +401,4 @@ case $backend in
     else
       tmux_action
     fi ;;
-  *) echo "edger: unknown backend: $backend" >&2; exit 2 ;;
 esac

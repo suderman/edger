@@ -24,27 +24,39 @@ SH
 cat > "$tmp/bin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [[ $1 != show-option && $1 != set-option ]]; then printf '%s\n' "$*" >> "$EDGER_TEST_LOG"; fi
+answer() {
+  case "$1" in
+    '#{pane_tty}') echo /dev/null ;;
+    '#{window_zoomed_flag}') if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]]; then echo 1; else echo 0; fi ;;
+    '#{pane_at_left}'|'#{pane_at_right}'|'#{pane_at_top}'|'#{pane_at_bottom}')
+      if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]] && ! grep -Fx 'resize-pane -Z -t %1' "$EDGER_TEST_LOG" >/dev/null; then echo 1
+      else echo "${EDGER_TEST_EDGE:-1}"; fi ;;
+    '#{window_id}') echo "${EDGER_TEST_WINDOW:-@1}" ;;
+    '#{session_id}') echo "${EDGER_TEST_SESSION:-\$1}" ;;
+    '#{session_windows}'|'#{window_panes}') echo "${EDGER_TEST_PANES:-2}" ;;
+    '#{server_sessions}') if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then echo 1; else echo 3; fi ;;
+    '#{client_tty}') echo "${EDGER_TEST_CLIENT_TTY-/dev/tty}" ;;
+    '#{pane_current_command}') echo "${EDGER_TEST_COMMAND:-bash}" ;;
+    *) echo %1 ;;
+  esac
+}
 case "$1" in
   display-message)
-    case "${*: -1}" in
-      '#{pane_tty}') echo /dev/null ;;
-      '#{window_zoomed_flag}') if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]]; then echo 1; else echo 0; fi ;;
-      '#{pane_at_left}'|'#{pane_at_right}'|'#{pane_at_top}'|'#{pane_at_bottom}')
-        if [[ ${EDGER_TEST_ZOOMED:-0} == 1 ]] && ! grep -Fx 'resize-pane -Z -t %1' "$EDGER_TEST_LOG" >/dev/null; then echo 1
-        else echo "${EDGER_TEST_EDGE:-1}"; fi ;;
-      '#{window_id}') echo "${EDGER_TEST_WINDOW:-@1}" ;;
-      '#{session_id}') echo "${EDGER_TEST_SESSION:-\$1}" ;;
-      '#{session_windows}'|'#{window_panes}') echo "${EDGER_TEST_PANES:-2}" ;;
-      '#{client_tty}') echo "${EDGER_TEST_CLIENT_TTY-/dev/tty}" ;;
-      *) echo %1 ;;
-    esac ;;
+    # Answer each unit-separated format in a combined query.
+    IFS=$'\x1f' read -ra formats <<< "${*: -1}"
+    out=
+    for format in "${formats[@]}"; do out+=$(answer "$format")$'\x1f'; done
+    echo "${out%$'\x1f'}" ;;
   list-windows) printf '@1\n@2\n@3\n' ;;
-  list-sessions) if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '$1\n'; else printf '$1\n$2\n$3\n'; fi ;;
+  list-sessions)
+    if [[ ${EDGER_TEST_ONLY_SESSION:-0} == 1 ]]; then printf '1 $1\n'
+    elif [[ ${EDGER_TEST_SESSION_ORDER:-} == created ]]; then printf '3 $1\n1 $2\n2 $3\n'
+    else printf '1 $1\n1 $2\n1 $3\n'; fi ;;
 esac
 SH
 cat > "$tmp/bin/ps" <<'SH'
 #!/usr/bin/env bash
-printf 'Ss+ nvim /nix/store/hash/bin/nvim file\n'
+[[ ${EDGER_TEST_PS:-nvim} == none ]] || printf 'Ss+ nvim /nix/store/hash/bin/nvim file\n'
 SH
 chmod +x "$tmp/bin/"*
 system_path=$PATH
@@ -214,6 +226,14 @@ EDGER_BACKEND=tmux TMUX_PANE=%1 "$edger" left C-M-h
 assert_log 'send-keys -t %1 C-M-h'
 assert_absent 'select-pane'
 reset_log
+# tmux names the foreground editor without ps.
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_PS=none EDGER_TEST_COMMAND=emacsclient "$edger" left M-h
+assert_log 'send-keys -t %1 M-h'
+reset_log
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_PS=none EDGER_TEST_EDGE=0 "$edger" left M-h
+assert_absent 'send-keys'
+assert_log 'select-pane -t %1 -L'
+reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_EDGE=0 "$edger" cross right
 assert_log 'select-pane -t %1 -R'
 assert_absent 'list-windows'
@@ -262,7 +282,7 @@ reset_log
 # Editor integrations call cross without the plugin's per-key client environment.
 EDGER_BACKEND=tmux TMUX_PANE=%1 press down
 assert_log "switch-client -c /dev/tty -t \$2"
-assert_log 'display-message -p -t %1 #{client_tty}'
+grep -F 'display-message -p -t %1' "$EDGER_TEST_LOG" | grep -F '#{client_tty}' >/dev/null || { echo 'Pane client not queried' >&2; exit 1; }
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TEST_CLIENT_TTY='' press down
 assert_absent 'switch-client'
@@ -283,6 +303,10 @@ EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSIO
 assert_log "switch-client -c /dev/tty -t \$1"
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$2 press down
+assert_log "switch-client -c /dev/tty -t \$3"
+reset_log
+# Sessions follow creation time, not ID order: $2, $3, then $1.
+EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION_ORDER=created EDGER_TEST_SESSION=\$1 press up
 assert_log "switch-client -c /dev/tty -t \$3"
 reset_log
 EDGER_BACKEND=tmux TMUX_PANE=%1 EDGER_TMUX_CLIENT_TTY=/dev/tty EDGER_TEST_SESSION=\$3 press down
@@ -421,5 +445,33 @@ lower=$(real_tmux display-message -p -t edger-test:2.1 '#{pane_id}')
 real_tmux resize-pane -Z -t "$lower"
 TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$lower "$edger" cross up
 [[ $(real_tmux display-message -p -t "$upper" '#{window_zoomed_flag} #{pane_active}') == '0 1' ]] || { echo 'Zoomed tmux pane did not reveal upper split' >&2; exit 1; }
+# Foreground detection: an editor started by a script, and a shell at its prompt.
+real_tmux new-window -t edger-test:3 "sh -c 'nvim --clean -u NONE; :'"
+real_tmux split-window -h -t edger-test:3 bash --norc --noprofile
+script_pane=$(real_tmux display-message -p -t edger-test:3.0 '#{pane_id}')
+shell_pane=$(real_tmux display-message -p -t edger-test:3.1 '#{pane_id}')
+sleep 1
+real_tmux select-pane -t "$script_pane"
+PATH=$system_path TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$script_pane "$edger" right M-l
+[[ $(real_tmux display-message -p -t "$script_pane" '#{pane_active}') == 1 ]] || { echo 'Editor under a script lost its key' >&2; exit 1; }
+PATH=$system_path TMUX_BIN_PATH="$tmp/bin/real-tmux" EDGER_BACKEND=tmux TMUX_PANE=$shell_pane "$edger" left M-h
+[[ $(real_tmux display-message -p -t "$script_pane" '#{pane_active}') == 1 ]] || { echo 'Shell prompt pane did not navigate' >&2; exit 1; }
+# Key bindings settle shell and editor presses inside tmux, without the script.
+PATH=$system_path tmux -L "$server" set-option -g @edger-key M
+PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
+real_tmux new-window -t edger-test:4 bash --norc --noprofile
+real_tmux split-window -h -t edger-test:4 "nvim --clean -u NONE"
+mkfifo "$tmp/control"
+sleep 30 > "$tmp/control" &
+PATH=$system_path tmux -L "$server" -C attach -t edger-test < "$tmp/control" > /dev/null 2>&1 &
+sleep 1
+client=$(real_tmux list-clients -F '#{client_name}' | head -1)
+real_tmux send-keys -K -c "$client" M-h
+sleep 0.3
+[[ $(real_tmux display-message -p -t edger-test:4.1 '#{pane_active}') == 1 ]] || { echo 'Editor pane lost its key' >&2; exit 1; }
+real_tmux select-pane -t edger-test:4.0
+real_tmux send-keys -K -c "$client" M-l
+sleep 0.3
+[[ $(real_tmux display-message -p -t edger-test:4.1 '#{pane_active}') == 1 ]] || { echo 'Shell pane did not navigate' >&2; exit 1; }
 PATH=$system_path tmux -L "$server" kill-server
 echo 'edger routing, Neovim, and tmux checks passed'
