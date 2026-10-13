@@ -77,8 +77,13 @@
          (delta (* (if (memq direction '(left up)) -1 1)
                    (if horizontal 5 3)))
          (window (selected-window))
-         (next (window-in-direction forward window))
-         (previous (window-in-direction backward window)))
+         ;; Side windows can forbid focus cycling without forbidding resizing.
+         (next (or (window-in-direction forward window)
+                   (let ((side (window-in-direction forward window t)))
+                     (and side (window-parameter side 'window-side) side))))
+         (previous (or (window-in-direction backward window)
+                       (let ((side (window-in-direction backward window t)))
+                         (and side (window-parameter side 'window-side) side)))))
     (cond
      (next (adjust-window-trailing-edge window delta horizontal) (edger--clear))
      (previous (adjust-window-trailing-edge previous delta horizontal) (edger--clear))
