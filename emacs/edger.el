@@ -115,9 +115,10 @@ A frame closes only when another frame on its display can take focus."
   (cond
    ((not (one-window-p t)) (delete-window) (edger--clear))
    ((> (length (tab-bar-tabs)) 1) (tab-bar-close-tab) (edger--clear))
-   ((when-let* ((other (edger--other-frame)))
-      (delete-frame)
+   ((when-let* ((other (edger--other-frame))
+                (frame (selected-frame)))
       (select-frame-set-input-focus other)
+      (delete-frame frame)
       t))
    ((edger--pane-context) (edger--cross "close"))))
 
