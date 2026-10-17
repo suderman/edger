@@ -46,7 +46,7 @@ Emacs 31 can install this repository with =package-vc= through =use-package=. =e
   :config (edger-setup "C-M" "s" "v" "q"))
 #+end_src
 
-The last three arguments to =edger-setup= replace =u=, =i=, and =w= in any setup. Calling it again removes the previous Edger bindings. Emacs represents Ctrl+Shift+h as =C-S-h=; plain =C-H= may collapse to =C-h= in terminals. =edger-executable= overrides the bundled script if needed. A standalone terminal Emacs gets its pane identity from =HERDR_PANE_ID= or =TMUX_PANE=. If a graphical daemon serves terminal clients, pass the pane identity as frame parameters with =emacsclient --tty -F=. Use =edger-herdr-pane-id= and =edger-herdr-socket-path= for Herdr, or =edger-tmux-pane-id= and =edger-tmux-socket= for tmux. The socket values come from =$HERDR_SOCKET_PATH= and =$TMUX=, respectively. Graphical frames stay within Emacs.
+The last three arguments to =edger-setup= replace =u=, =i=, and =w= in any setup. Calling it again removes the previous Edger bindings. Close removes a window, then a tab-bar tab, then the frame when another frame on the same display can take focus, and only then the multiplexer pane. Emacs represents Ctrl+Shift+h as =C-S-h=; plain =C-H= may collapse to =C-h= in terminals. =edger-executable= overrides the bundled script if needed. A standalone terminal Emacs gets its pane identity from =HERDR_PANE_ID= or =TMUX_PANE=. If a graphical daemon serves terminal clients, pass the pane identity as frame parameters with =emacsclient --tty -F=. Use =edger-herdr-pane-id= and =edger-herdr-socket-path= for Herdr, or =edger-tmux-pane-id= and =edger-tmux-socket= for tmux. The socket values come from =$HERDR_SOCKET_PATH= and =$TMUX=, respectively. Graphical frames stay within Emacs.
 
 ** Neovim
 

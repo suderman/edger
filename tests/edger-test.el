@@ -207,6 +207,33 @@
       (while (> (length (tab-bar-tabs)) original-tabs) (tab-bar-close-tab))
       (set-frame-parameter frame 'edger-herdr-pane-id nil))))
 
+(ert-deftest edger-close-frame-only-when-another-shares-its-display ()
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((frame (selected-frame)) other calls deleted focused)
+      (unwind-protect
+          (progn
+            (set-frame-parameter frame 'edger-herdr-pane-id "p1")
+            ;; Batch Emacs cannot create frames, so model OTHER's display and parent.
+            (dolist (case '((same nil t) (child t nil) (elsewhere nil nil)))
+              (setq other (car case) calls nil deleted nil focused nil)
+              (cl-letf (((symbol-function 'frame-list) (lambda () (list frame other)))
+                        ((symbol-function 'frame-parent)
+                         (lambda (&optional f) (and (eq f other) (nth 1 case))))
+                        ((symbol-function 'frame-terminal)
+                         (lambda (&optional f) (if (eq f other) (car case) 'same)))
+                        ((symbol-function 'delete-frame) (lambda (&rest _) (setq deleted t)))
+                        ((symbol-function 'select-frame-set-input-focus)
+                         (lambda (f &rest _) (setq focused f)))
+                        ((symbol-function 'call-process)
+                         (lambda (&rest args) (push args calls) 0)))
+                (edger-close))
+              (if (nth 2 case)
+                  (progn (should deleted) (should (eq focused other)) (should-not calls))
+                (should-not deleted)
+                (should (equal (car calls) (list edger-executable nil nil nil "cross" "close"))))))
+        (set-frame-parameter frame 'edger-herdr-pane-id nil)))))
+
 (ert-deftest edger-graphical-frame-stays-local ()
   (save-window-excursion
     (delete-other-windows)

@@ -12,6 +12,7 @@
 
 ;;; Code:
 
+(require 'seq)
 (require 'windmove)
 (require 'tab-bar)
 
@@ -98,11 +99,26 @@
   (select-window (split-window-below)) (edger--clear))
 (defun edger-vertical () "Split right and select the new window." (interactive)
   (select-window (split-window-right)) (edger--clear))
-(defun edger-close () "Close a window, then an editor tab, then its multiplexer pane."
+(defun edger--other-frame ()
+  "Return another top-level frame on the selected frame's display, if any.
+Frames on other terminals, such as other multiplexer panes, do not count."
+  (seq-find (lambda (frame)
+              (and (not (eq frame (selected-frame)))
+                   (not (frame-parent frame))
+                   (eq (frame-terminal frame) (frame-terminal))))
+            (frame-list)))
+
+(defun edger-close ()
+  "Close a window, then an editor tab, then a frame, then its multiplexer pane.
+A frame closes only when another frame on its display can take focus."
   (interactive)
   (cond
    ((not (one-window-p t)) (delete-window) (edger--clear))
    ((> (length (tab-bar-tabs)) 1) (tab-bar-close-tab) (edger--clear))
+   ((when-let* ((other (edger--other-frame)))
+      (delete-frame)
+      (select-frame-set-input-focus other)
+      t))
    ((edger--pane-context) (edger--cross "close"))))
 
 (defun edger-left () "Navigate left." (interactive) (edger--navigate 'left))
