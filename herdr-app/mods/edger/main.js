@@ -17,10 +17,13 @@
 // started last acts, so a second host does not move twice.
 
 import { View, div } from "gpui-kit";
-import { checking, focused, hc, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
-import { Edges, Forwards, REPEAT_MS, STEP, isEditor, parseKey } from "./edges.js";
+import { appHome, checking, exec, focused, hc, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
+import { Edges, Forwards, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, parseKey, resizeWeights } from "./edges.js";
 
 const POLL_MS = 10;
+// The app stores its layout in Core about half a second after a change, so
+// resizes within this long of the last one reuse the tree they changed.
+const TREE_MS = 1500;
 
 function record(address) {
   return address ? terminals().find((t) => t.address === address) : undefined;
@@ -33,6 +36,8 @@ export default class Edger extends View {
     this.inbox = [];
     this.seq = 0;
     this.polling = false;
+    this.trees = new Map();
+    this.typing = Promise.resolve();
     this.id = `${Date.now()}:${Math.random()}`;
     if (checking()) return;
     setShared("edger.copy", this.id);
@@ -95,14 +100,32 @@ export default class Edger extends View {
       // A move inside the editor ends a confirmation armed for another key.
       if (this.edges.arm?.dir !== op) this.edges.clear();
       this.forwards.add(f.terminal, op, now, r?.labels?.edger);
-      hc(["keys", f.terminal, key]).then(
-        (r) => { if (r.code !== 0) console.log(`edger: hc keys ${f.terminal}: ${r.stderr.trim()}`); },
-        (error) => console.log(`edger: hc keys ${f.terminal}: ${error}`));
+      this.type(f.terminal, r, key);
       this.poll(cx);
       return;
     }
     if (op in STEP) return this.navigate(op, f, now, cx);
+    if (op.startsWith("resize-")) return this.resize(op.slice(7), f);
     return this.action(op, f.pane);
+  }
+
+  // Types a key into an editor's terminal, one key at a time so fast presses
+  // keep their order. `hc keys` waits until nobody has typed in the terminal
+  // for 3 s, so the `type` helper types as an attached viewer instead, and
+  // `hc keys` is only the fallback when the helper cannot attach.
+  type(terminal, record, key) {
+    const hex = keyHex(key);
+    const keys = () => hc(["keys", terminal, ...forwardKeys(record, key)]).then(
+      (r) => { if (r.code !== 0) console.log(`edger: hc keys ${terminal}: ${r.stderr.trim()}`); },
+      (error) => console.log(`edger: hc keys ${terminal}: ${error}`));
+    const typed = () => {
+      if (!hex || !record?.cols || !record?.rows) return keys();
+      const args = [`${appHome()}/mods/edger/type`, terminal, String(record.cols), String(record.rows), hex];
+      return exec("bash", args, { timeout: 3000 }).then(
+        (r) => { if (r.code !== 0) { console.log(`edger: type ${terminal}: ${r.stderr.trim()}`); return keys(); } },
+        (error) => { console.log(`edger: type ${terminal}: ${error}`); return keys(); });
+    };
+    this.typing = this.typing.then(typed, typed);
   }
 
   // Watches forwarded terminals' labels until every forward answers or expires.
@@ -128,7 +151,56 @@ export default class Edger extends View {
     // The editor's terminal must still have focus in this window.
     if (!f?.pane || f.terminal !== terminal) return;
     if (op in STEP) return this.navigate(op, f, at, cx);
+    if (op.startsWith("resize-")) return this.resize(op.slice(7), f);
     if (op === "close") return this.action(op, f.pane);
+  }
+
+  // Moves the focused pane's nearest Herdr divider in `dir`. The app's
+  // layout.resize sets a node's weight; the current weights live in the
+  // "herdr-app" document of the machine the space is on.
+  async resize(dir, f) {
+    this.edges.clear();
+    const space = spaces().find((s) => s.id === f.space);
+    const tab = space?.tabs.find((t) => t.id === f.tab);
+    if (!tab) return;
+    const machine = space.machine ?? null;
+    const prefix = machine ? `${machine}/` : "";
+    const local = (id) => (id.startsWith(prefix) ? id.slice(prefix.length) : id);
+    let cached = this.trees.get(f.tab);
+    if (cached && (Date.now() - cached.at > TREE_MS || cached.panes !== tab.panes)) cached = null;
+    let sizes = cached && resizeWeights(cached.root, local(f.pane), dir);
+    if (!sizes) {
+      cached = { root: await this.tree(machine, local(f.tab)), panes: tab.panes };
+      sizes = resizeWeights(cached.root, local(f.pane), dir);
+    }
+    if (!sizes) return;
+    for (const { id, weight } of sizes) run("layout.resize", { id: prefix + id, weight });
+    const set = (node) => {
+      const size = sizes.find((s) => s.id === node.id);
+      if (size) node.size = { weight: size.weight };
+      (node.children ?? []).forEach(set);
+    };
+    set(cached.root);
+    cached.at = Date.now();
+    this.trees.set(f.tab, cached);
+  }
+
+  async tree(machine, tab) {
+    const params = machine ? { name: "herdr-app", on: machine } : { name: "herdr-app" };
+    const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "doc.get", params });
+    const r = await exec("sh", ["-c", 'printf \'%s\\n\' "$1" | exec hc connect', "edger", request], { timeout: 5000 });
+    if (r.code !== 0) throw new Error(`hc connect: ${r.stderr.trim()}`);
+    for (const line of r.stdout.split("\n")) {
+      let reply;
+      try { reply = JSON.parse(line); } catch { continue; }
+      if (reply?.id !== 1) continue;
+      if (reply.error) throw new Error(`doc.get: ${JSON.stringify(reply.error)}`);
+      for (const s of reply.result?.value?.spaces ?? []) {
+        const found = (s.tabs ?? []).find((t) => t.id === tab);
+        if (found) return found.root;
+      }
+    }
+    return null;
   }
 
   async navigate(dir, f, at, cx) {

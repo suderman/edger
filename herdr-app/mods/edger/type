@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Types bytes into a Herdr Core terminal the way an attached window does.
+# usage: type TERMINAL COLS ROWS HEX
+#
+# `hc keys` waits until nobody has typed in the terminal for 3 s, which suits
+# agents but stalls a key pressed right after typing. Input from an attached
+# viewer goes straight in. This attaches through `hc connect` in framed mode
+# (`[channel u32 LE][kind u8][len u32 LE][payload]`), types, and detaches.
+# The viewer attaches as `resumed` and types AUTOMATIC_INPUT, so it never
+# becomes the viewer whose size and colors the terminal follows.
+set -euo pipefail
+export LC_ALL=C
+[[ $# -eq 4 && $2 =~ ^[0-9]+$ && $3 =~ ^[0-9]+$ && $4 =~ ^([0-9a-f]{2})+$ ]] || {
+  echo 'usage: type TERMINAL COLS ROWS HEX' >&2; exit 2; }
+terminal=$1 cols=$2 rows=$3 hex=$4
+
+le32() {
+  printf -v "$2" '\\x%02x\\x%02x\\x%02x\\x%02x' $(($1 & 255)) $(($1 >> 8 & 255)) $(($1 >> 16 & 255)) $(($1 >> 24 & 255))
+}
+# frame CHANNEL KIND PAYLOAD: the payload is written as is.
+frame() {
+  local channel kind length
+  le32 "$1" channel
+  printf -v kind '\\x%02x' "$2"
+  le32 "${#3}" length
+  printf "$channel$kind$length" >&"$out"
+  printf '%s' "$3" >&"$out"
+}
+
+coproc core { exec "${HC_BIN_PATH:-hc}" connect; }
+# shellcheck disable=SC2154 # coproc sets core_PID
+pid=$core_PID
+trap 'kill "$pid" 2>/dev/null || :' EXIT
+# Subshells, such as the pipes below, cannot see a coproc's descriptors.
+exec {in}<&"${core[0]}" {out}>&"${core[1]}"
+printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"hello","params":{"framed":true}}' >&"$out"
+read -r reply <&"$in"
+[[ $reply != *'"error"'* ]] || { echo "edger: hc connect: $reply" >&2; exit 1; }
+params=$(jq -cn --arg t "$terminal" --argjson c "$cols" --argjson r "$rows" \
+  '{terminal: $t, cols: $c, rows: $r, observe: false, resumed: true, history: 0}')
+frame 0 0 "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"terminal.attach\",\"params\":$params}"
+
+# Skip the stream's first paint until the attach reply arrives on channel 0.
+for ((i = 0; i < 10000; i++)); do
+  read -r -a header < <(head -c 9 <&"$in" | od -An -v -tu1)
+  [[ ${#header[@]} -eq 9 ]] || { echo 'edger: hc connect closed' >&2; exit 1; }
+  channel=$((header[0] | header[1] << 8 | header[2] << 16 | header[3] << 24))
+  length=$((header[5] | header[6] << 8 | header[7] << 16 | header[8] << 24))
+  if ((channel == 0 && header[4] == 0)); then
+    reply=$(head -c "$length" <&"$in")
+    break
+  fi
+  head -c "$length" <&"$in" >/dev/null
+done
+stream=$(jq -r '.result.channel // empty' <<< "$reply")
+[[ -n $stream ]] || { echo "edger: attach $terminal: $reply" >&2; exit 1; }
+kind=6 # AUTOMATIC_INPUT
+[[ $(jq -r '.result.automatic_input' <<< "$reply") == true ]] || kind=0
+# The key's bytes, from hex, followed by CLOSE.
+bytes=
+for ((i = 0; i < ${#hex}; i += 2)); do bytes+="\\x${hex:i:2}"; done
+printf -v bytes "$bytes"
+frame "$stream" "$kind" "$bytes"
+frame "$stream" 2 ""
+# The key is typed once hc connect passes these on; closing its input ends it.
+# Never fail from here on: a caller retrying would type the key twice.
+exec {out}>&-
+eval "exec ${core[1]}>&-"
+for ((i = 0; i < 100; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.01; done
+exit 0

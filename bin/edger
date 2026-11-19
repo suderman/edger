@@ -39,12 +39,14 @@ fi
 
 # In the Herdr app, the Edger mod handles keys. An editor at its edge asks it
 # to cross by changing a label on its own Core terminal, which reaches the app
-# from this machine or another. The mod does not resize panes yet.
+# from this machine or another.
 if [[ $backend == app ]]; then
-  [[ $mode == cross && $operation != clear && $operation != resize ]] || exit 0
+  [[ $mode == cross && $operation != clear ]] || exit 0
   [[ -n ${HC_TERMINAL_ID-} ]] || { echo 'edger: no Core terminal id' >&2; exit 1; }
+  op=$name
+  [[ $operation != resize ]] || op=resize-$name
   # The time alone may repeat when two presses share a clock tick.
-  exec "${HC_BIN_PATH:-hc}" label "$HC_TERMINAL_ID" "edger=$name:${EPOCHREALTIME//[!0-9]/}.$$" >/dev/null
+  exec "${HC_BIN_PATH:-hc}" label "$HC_TERMINAL_ID" "edger=$op:${EPOCHREALTIME//[!0-9]/}.$$" >/dev/null
 fi
 
 # Parse all available process identities. Herdr's display name alone can be a

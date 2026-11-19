@@ -3,7 +3,10 @@
 // which forwarded key an editor's request answers. Times are milliseconds.
 
 export const EDITOR = /^(emacs|emacsclient|nvim|vim|vi|view|gvim|nvimdiff|vimdiff)$/;
-export const LETTER = { left: "h", down: "j", up: "k", right: "l", horizontal: "u", vertical: "i", close: "w" };
+export const LETTER = {
+  left: "h", down: "j", up: "k", right: "l", horizontal: "u", vertical: "i", close: "w",
+  "resize-left": "h", "resize-down": "j", "resize-up": "k", "resize-right": "l",
+};
 export const STEP = { left: -1, up: -1, right: 1, down: 1 };
 // As in bin/edger: how long a confirmation stays armed, the quiet period
 // after rapid navigation, and presses closer than this count as key repeat.
@@ -12,6 +15,9 @@ export const CREATION_IDLE_MS = 400;
 export const REPEAT_MS = 120;
 // How long a forwarded key may take to come back from the editor as a request.
 export const REQUEST_MS = 1500;
+// A resize moves a divider by this share of its split, and leaves each side
+// at least this share.
+export const RESIZE_STEP = 0.05;
 
 // A Core terminal record: what runs in the foreground now, else what started.
 export function isEditor(record) {
@@ -20,12 +26,95 @@ export function isEditor(record) {
   return names.some((n) => typeof n === "string" && EDITOR.test(n.split("/").pop().toLowerCase()));
 }
 
+// Core 0.1.21's `hc keys alt+shift+k` drops Shift for a program in legacy
+// keyboard mode (it sends ESC k). ESC then Shift+k are the bytes a real
+// terminal sends there. Neovim asks for the kitty keyboard protocol, where
+// Core encodes Shift correctly and ESC would arrive as a key of its own.
+const KITTY = /^nvim$/;
+export function forwardKeys(record, key) {
+  const shifted = /^alt\+shift\+([a-z])$/.exec(key);
+  if (!shifted) return [key];
+  const fg = record?.foreground;
+  const names = fg ? [fg.name, fg.argv?.[0]] : [record?.argv?.[0]];
+  const kitty = names.some((n) => typeof n === "string" && KITTY.test(n.split("/").pop().toLowerCase()));
+  return kitty ? [key] : ["esc", `shift+${shifted[1]}`];
+}
+
+// The bytes a terminal in its legacy keyboard mode sends for a key such as
+// "alt+h", "alt+shift+h" or "ctrl+alt+h", as hex; null for keys it cannot
+// tell apart there (ctrl+shift) or names other than a letter or digit.
+export function keyHex(spec) {
+  const parts = spec.toLowerCase().split("+");
+  const name = parts.pop();
+  if (!/^[a-z0-9]$/.test(name)) return null;
+  const mods = new Set();
+  for (const m of parts) {
+    if (m === "alt" || m === "meta") mods.add("alt");
+    else if (m === "ctrl" || m === "control") mods.add("ctrl");
+    else if (m === "shift") mods.add("shift");
+    else return null;
+  }
+  const letter = /[a-z]/.test(name);
+  if ((mods.has("shift") || mods.has("ctrl")) && !letter) return null;
+  if (mods.has("shift") && mods.has("ctrl")) return null;
+  let code = name.charCodeAt(0);
+  if (mods.has("shift")) code -= 32;
+  if (mods.has("ctrl")) code &= 0x1f;
+  return (mods.has("alt") ? "1b" : "") + code.toString(16).padStart(2, "0");
+}
+
 // "edger.<op>[:<key>]" from keys.json, without the mod name.
 export function parseKey(command) {
   const i = command.indexOf(":");
   const op = i < 0 ? command : command.slice(0, i);
   if (!(op in LETTER)) return null;
-  return { op, key: (i < 0 ? "" : command.slice(i + 1)) || `alt+${LETTER[op]}` };
+  const shift = op.startsWith("resize-") ? "shift+" : "";
+  return { op, key: (i < 0 ? "" : command.slice(i + 1)) || `alt+${shift}${LETTER[op]}` };
+}
+
+// A tab's split tree as Core stores it (doc.get "herdr-app": nodes with id,
+// type "row" | "column" | "block", children, and size {weight} or {px}).
+// Moving `pane`'s divider in `dir`, as Edger does in Emacs and tmux: the
+// nearest divider after the pane on that axis, else the one before it, moves
+// that way. Returns the two new sizes, or null when nothing can move.
+export function resizeWeights(root, pane, dir) {
+  const axis = dir === "left" || dir === "right" ? "row" : "column";
+  const path = [];
+  const find = (node) => {
+    if (node.id === pane) return true;
+    for (const child of node.children ?? []) {
+      path.push([node, child]);
+      if (find(child)) return true;
+      path.pop();
+    }
+    return false;
+  };
+  if (!root || !find(root)) return null;
+  const levels = path.filter(([node]) => node.type === axis).reverse();
+  const divider = (offset) => {
+    for (const [node, child] of levels) {
+      const i = node.children.indexOf(child);
+      const j = i + offset;
+      if (j >= 0 && j < node.children.length) return [node, Math.min(i, j)];
+    }
+    return null;
+  };
+  const found = divider(1) ?? divider(-1);
+  if (!found) return null;
+  const [node, i] = found;
+  const fixed = (n) => n.size?.px !== undefined;
+  const weight = (n) => n.size?.weight ?? 1;
+  const a = node.children[i];
+  const b = node.children[i + 1];
+  if (fixed(a) || fixed(b)) return null;
+  const total = node.children.filter((n) => !fixed(n)).reduce((sum, n) => sum + weight(n), 0);
+  const least = total * RESIZE_STEP;
+  const wanted = total * RESIZE_STEP * (dir === "left" || dir === "up" ? -1 : 1);
+  // Never past the minimum, and never back the other way.
+  const d = wanted < 0 ? Math.min(0, Math.max(wanted, least - weight(a)))
+    : Math.max(0, Math.min(wanted, weight(b) - least));
+  if (Math.abs(d) < total * 1e-6) return null;
+  return [{ id: a.id, weight: weight(a) + d }, { id: b.id, weight: weight(b) - d }];
 }
 
 // One window's double-press state. The app gives key bindings no release or

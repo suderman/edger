@@ -402,8 +402,10 @@ app cross right
 grep -Ex 'hc label t7 edger=right:[0-9]+\.[0-9]+' "$EDGER_TEST_LOG" >/dev/null || { echo 'App crossing not labelled' >&2; cat "$EDGER_TEST_LOG" >&2; exit 1; }
 app cross close
 grep -Ex 'hc label t7 edger=close:[0-9]+\.[0-9]+' "$EDGER_TEST_LOG" >/dev/null
+app cross resize up
+grep -Ex 'hc label t7 edger=resize-up:[0-9]+\.[0-9]+' "$EDGER_TEST_LOG" >/dev/null
 reset_log
-app cross clear; app cross resize left; app right; app close
+app cross clear; app right; app close; app resize left
 assert_absent 'hc '
 [[ ! -e $EDGER_STATE_DIR ]] || { echo 'App backend wrote state' >&2; exit 1; }
 reset_log
@@ -414,6 +416,34 @@ reset_log
 env -u EDGER_BACKEND -u HERDR_PANE_ID HC_TERMINAL_ID=t7 TMUX='/tmp/edger-test,42,0' TMUX_PANE=%1 "$edger" cross close
 assert_absent 'hc '
 assert_log 'kill-pane -t %1'
+# The Herdr app mod types into editors as an attached viewer. A fake
+# `hc connect` answers hello and attach, after a first paint to skip.
+cat > "$tmp/bin/hc-connect" <<'SH'
+#!/usr/bin/env bash
+export LC_ALL=C
+[[ $1 == connect ]] || exit 2
+read -r hello
+printf '%s\n' "$hello" > "$EDGER_TEST_LOG.hello"
+printf '%s\n' '{"jsonrpc":"2.0","id":0,"result":{}}'
+read -r -a h < <(head -c 9 | od -An -v -tu1)
+head -c $((h[5] | h[6] << 8)) > "$EDGER_TEST_LOG.attach"
+reply='{"jsonrpc":"2.0","id":1,"result":{"channel":3,"automatic_input":true,"resize_notifications":false}}'
+printf '\x03\x00\x00\x00\x00\x05\x00\x00\x00paint'
+printf "\\x00\\x00\\x00\\x00\\x00\\x$(printf %02x ${#reply})\\x00\\x00\\x00"
+printf '%s' "$reply"
+cat > "$EDGER_TEST_LOG.frames"
+SH
+chmod +x "$tmp/bin/hc-connect"
+HC_BIN_PATH="$tmp/bin/hc-connect" bash "$root/herdr-app/mods/edger/type" rem/t7 80 24 1b4b
+grep -F '"framed":true' "$EDGER_TEST_LOG.hello" >/dev/null
+jq -e '.method == "terminal.attach" and .params.terminal == "rem/t7" and .params.cols == 80 and .params.rows == 24
+  and .params.resumed and (.params.observe | not)' "$EDGER_TEST_LOG.attach" >/dev/null
+# AUTOMATIC_INPUT (6) with ESC K on channel 3, then CLOSE (2).
+[[ $(od -An -v -tx1 "$EDGER_TEST_LOG.frames" | tr -d ' \n') == 030000000602000000""1b4b""030000000200000000 ]] ||
+  { echo 'Viewer frames differ' >&2; od -An -tx1 "$EDGER_TEST_LOG.frames" >&2; exit 1; }
+if HC_BIN_PATH="$tmp/bin/hc-connect" bash "$root/herdr-app/mods/edger/type" t7 80 24 zz 2>/dev/null; then
+  echo 'Bad key bytes accepted' >&2; exit 1
+fi
 cat > "$tmp/bin/edger" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$EDGER_TEST_LOG"
