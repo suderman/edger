@@ -11,7 +11,7 @@ local function executable(opts)
 end
 
 local function cross(opts, ...)
-  if not vim.env.HERDR_PANE_ID and not vim.env.TMUX_PANE then return end
+  if not vim.env.HERDR_PANE_ID and not vim.env.TMUX_PANE and not vim.env.HC_TERMINAL_ID then return end
   local result = vim.fn.system({ executable(opts), "cross", ... })
   if vim.v.shell_error ~= 0 then vim.notify(result, vim.log.levels.ERROR) end
 end

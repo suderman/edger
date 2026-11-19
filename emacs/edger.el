@@ -24,6 +24,18 @@
   :type 'string
   :group 'edger)
 
+(defun edger--client-getenv (variable)
+  "Return VARIABLE from the selected frame's client environment.
+A daemon's terminal frames carry the environment of their emacsclient."
+  (if (daemonp) (getenv variable (selected-frame)) (getenv variable)))
+
+(defun edger--hc-terminal ()
+  "Return the Herdr Core terminal of the selected frame, outside tmux and Herdr."
+  (or (frame-parameter (selected-frame) 'edger-hc-terminal-id)
+      (and (not (edger--client-getenv "TMUX"))
+           (not (edger--client-getenv "HERDR_PANE_ID"))
+           (edger--client-getenv "HC_TERMINAL_ID"))))
+
 (defun edger--pane-context ()
   "Return the selected terminal frame's backend and pane, if available."
   (unless (display-graphic-p)
@@ -32,7 +44,8 @@
        ((or (frame-parameter frame 'edger-tmux-pane-id)
             (unless (daemonp) (getenv "TMUX_PANE"))) 'tmux)
        ((or (frame-parameter frame 'edger-herdr-pane-id)
-            (unless (daemonp) (getenv "HERDR_PANE_ID"))) 'herdr)))))
+            (unless (daemonp) (getenv "HERDR_PANE_ID"))) 'herdr)
+       ((edger--hc-terminal) 'app)))))
 
 (defun edger--cross (&rest args)
   "Call the multiplexer with ARGS for the selected terminal frame."
@@ -40,7 +53,8 @@
          (backend (edger--pane-context))
          (pane (pcase backend
                  ('tmux (or (frame-parameter frame 'edger-tmux-pane-id) (getenv "TMUX_PANE")))
-                 ('herdr (or (frame-parameter frame 'edger-herdr-pane-id) (getenv "HERDR_PANE_ID")))))
+                 ('herdr (or (frame-parameter frame 'edger-herdr-pane-id) (getenv "HERDR_PANE_ID")))
+                 ('app (edger--hc-terminal))))
          (socket (pcase backend
                    ('tmux (or (frame-parameter frame 'edger-tmux-socket) (getenv "TMUX")))
                    ('herdr (or (frame-parameter frame 'edger-herdr-socket-path) (getenv "HERDR_SOCKET_PATH")))))
@@ -49,7 +63,11 @@
                     ('tmux (list "EDGER_BACKEND=tmux" (concat "TMUX_PANE=" pane)
                                  (concat "TMUX=" (or socket ""))))
                     ('herdr (list "EDGER_BACKEND=herdr" (concat "HERDR_PANE_ID=" pane)
-                                  (concat "HERDR_SOCKET_PATH=" (or socket "")))))
+                                  (concat "HERDR_SOCKET_PATH=" (or socket ""))))
+                    ;; A Core session other than the default comes from the client.
+                    ('app (append (list "EDGER_BACKEND=app" (concat "HC_TERMINAL_ID=" pane))
+                                  (let ((session (edger--client-getenv "HC_SESSION")))
+                                    (and session (list (concat "HC_SESSION=" session)))))))
                   process-environment)))
     (when backend
       (unless (eq 0 (apply #'call-process edger-executable nil nil nil "cross" args))

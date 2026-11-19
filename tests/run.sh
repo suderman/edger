@@ -68,6 +68,8 @@ assert_absent() { if grep -q -- "$1" "$EDGER_TEST_LOG"; then echo "Unexpected: $
 reset_log() { : > "$EDGER_TEST_LOG"; rm -rf "$EDGER_STATE_DIR"; clock=1000000000; }
 press() { EDGER_TEST_NOW_US=$clock "$edger" cross "$@"; clock=$((clock + 200000)); }
 
+if command -v node >/dev/null; then node --test --test-reporter=dot "$root/tests/edges.test.mjs"
+else echo 'node not found: skipped the Herdr app mod tests' >&2; fi
 if "$edger" diagonal 2>/dev/null; then echo 'invalid direction accepted' >&2; exit 1; fi
 if EDGER_CREATION_IDLE_MS=0 "$edger" cross right 2>/dev/null; then echo 'invalid creation idle accepted' >&2; exit 1; fi
 reset_log
@@ -388,6 +390,30 @@ if TMUX_BIN_PATH="$tmp/bin/missing-tmux" EDGER_BACKEND=tmux "$edger" cross left 
   echo 'Missing tmux executable accepted' >&2; exit 1
 fi
 grep -F 'tmux executable not found' "$tmp/error" >/dev/null
+# Herdr app: an editor's crossing becomes a label on its own Core terminal.
+cat > "$tmp/bin/hc" <<'SH'
+#!/usr/bin/env bash
+printf 'hc %s\n' "$*" >> "$EDGER_TEST_LOG"
+SH
+chmod +x "$tmp/bin/hc"
+app() { env -u EDGER_BACKEND -u HERDR_PANE_ID HC_TERMINAL_ID=t7 "$edger" "$@"; }
+reset_log
+app cross right
+grep -Ex 'hc label t7 edger=right:[0-9]+\.[0-9]+' "$EDGER_TEST_LOG" >/dev/null || { echo 'App crossing not labelled' >&2; cat "$EDGER_TEST_LOG" >&2; exit 1; }
+app cross close
+grep -Ex 'hc label t7 edger=close:[0-9]+\.[0-9]+' "$EDGER_TEST_LOG" >/dev/null
+reset_log
+app cross clear; app cross resize left; app right; app close
+assert_absent 'hc '
+[[ ! -e $EDGER_STATE_DIR ]] || { echo 'App backend wrote state' >&2; exit 1; }
+reset_log
+env -u EDGER_BACKEND HC_TERMINAL_ID=t7 HERDR_PANE_ID=p1 "$edger" cross right
+assert_absent 'hc '
+assert_log 'pane focus --direction right --pane p1'
+reset_log
+env -u EDGER_BACKEND -u HERDR_PANE_ID HC_TERMINAL_ID=t7 TMUX='/tmp/edger-test,42,0' TMUX_PANE=%1 "$edger" cross close
+assert_absent 'hc '
+assert_log 'kill-pane -t %1'
 cat > "$tmp/bin/edger" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$EDGER_TEST_LOG"
@@ -396,6 +422,10 @@ chmod +x "$tmp/bin/edger"
 export EDGER_TEST_BIN="$tmp/bin/edger"
 reset_log
 (cd "$root" && nvim --headless --clean -u NONE -l tests/neovim.lua)
+reset_log
+(cd "$root" && env -u HERDR_PANE_ID HC_TERMINAL_ID=t7 nvim --headless --clean -u NONE --cmd 'set rtp^=.' \
+  -c 'lua require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN })' -c EdgerRight -c 'qa!')
+assert_log 'cross right'
 # Load the actual tmux plugin on an isolated server, not the user's session.
 server="edger-test-$$"
 PATH=$system_path tmux -L "$server" -f /dev/null new-session -d -s edger-test

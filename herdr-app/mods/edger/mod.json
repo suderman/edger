@@ -1,0 +1,1 @@
+{ "place": "none", "title": "Edger", "overlay": { "kind": "window", "key": "edger", "keep": true, "frame": "none", "width": 2, "height": 2, "at": { "x": 0, "y": 0 } } }
