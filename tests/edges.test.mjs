@@ -1,7 +1,7 @@
 // Herdr app mod logic: node --test tests/edges.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Edges, Forwards, Local, PREFIX_DEFAULTS, REPEAT_MS, forwardKeys, isEditor, keyHex, localLetter, parseKey, prefixAction, prefixMatch, prefixRows, resizeWeights } from "../herdr-app/mods/edger/edges.js";
+import { Edges, Forwards, Local, PREFIX_DEFAULTS, REPEAT_MS, copyKey, forwardKeys, isEditor, keyHex, lineSelection, localLetter, parseKey, prefixAction, prefixMatch, prefixRows, resizeWeights } from "../herdr-app/mods/edger/edges.js";
 
 test("editors are found by foreground name or argv[0]", () => {
   assert.ok(isEditor({ foreground: { name: ".emacsclient-wr", argv: ["/nix/store/x/bin/emacsclient", "--tty"] } }));
@@ -250,4 +250,27 @@ test("prefix entries get readable labels and a stable order", () => {
   const tabs = Object.fromEntries([1, 2, 3, 4].map((n) => [String(n), `tab.select:${n}`]));
   assert.deepEqual(prefixRows({ ...tabs, z: "pane.zoom" }).map((r) => `${r.key} ${r.action.label}`), ["z zoom pane", "1–4 tab by number"]);
   assert.ok(prefixRows(PREFIX_DEFAULTS).length >= 8);
+});
+
+test("copy mode reads meow-style keys", () => {
+  const k = (keystroke, key_char, modifiers = {}) => copyKey({ keystroke, key: keystroke.split("-").pop(), key_char, modifiers });
+  assert.deepEqual(k("h", "h"), { op: "move", move: "left" });
+  assert.deepEqual(k("down"), { op: "move", move: "down" });
+  assert.deepEqual(k("a", "a"), { op: "move", move: "line_start" });
+  assert.deepEqual(k("n", "n"), { op: "move", move: "page_down" });
+  assert.deepEqual(k("m", "m"), { op: "select" });
+  assert.deepEqual(k("shift-m", "M", { shift: true }), { op: "lines" });
+  assert.deepEqual(k("c", "c"), { op: "copy" });
+  assert.deepEqual(k("escape"), { op: "exit" });
+  assert.equal(k("shift-h", "H", { shift: true }), null);
+  assert.equal(k("ctrl-c", "c", { control: true }), null);
+  assert.equal(k("x", "x"), null);
+});
+
+test("line selections start at the anchor row's edge", () => {
+  const cmd = (c) => `${c[0].split(".")[1]}:${c[1].direction ?? `${c[1].at.row},${c[1].at.col}`}`;
+  assert.deepEqual(lineSelection("t1", 10, 12, 80).map(cmd), ["select:10,0", "adjust_selection:down", "adjust_selection:down", "adjust_selection:line_end"]);
+  assert.deepEqual(lineSelection("t1", 10, 9, 80).map(cmd), ["select:10,79", "adjust_selection:up", "adjust_selection:line_start"]);
+  assert.deepEqual(lineSelection("t1", 10, 10, 80).map(cmd), ["select:10,0", "adjust_selection:line_end"]);
+  assert.ok(lineSelection("t1", 3, 4, 80).every((c) => c[1].terminal === "t1"));
 });

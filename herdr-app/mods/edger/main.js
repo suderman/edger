@@ -19,7 +19,7 @@
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { appHome, checking, closeOverlay, exec, focused, hc, nextCommand, openOverlay, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme } from "herdr";
-import { Edges, Forwards, LETTER, Local, PREFIX_DEFAULTS, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, localLetter, parseKey, prefixMatch, prefixRows, resizeWeights } from "./edges.js";
+import { Edges, Forwards, LETTER, Local, PREFIX_DEFAULTS, REPEAT_MS, STEP, copyKey, forwardKeys, isEditor, keyHex, lineSelection, localLetter, parseKey, prefixMatch, prefixRows, resizeWeights } from "./edges.js";
 
 const POLL_MS = 10;
 // The app stores its layout in Core about half a second after a change, so
@@ -32,8 +32,9 @@ function record(address) {
 
 export default class Edger extends View {
   init(_props, cx) {
-    // The Alt+Z prefix popup is another copy of this mod.
+    // The Alt+Z prefix popup and copy mode are other copies of this mod.
     if (props()?.prefix) return this.initPrefix(cx);
+    if (props()?.copy) return this.initCopy(cx);
     this.edges = new Edges();
     this.forwards = new Forwards();
     this.local = new Local();
@@ -60,6 +61,7 @@ export default class Edger extends View {
   }
 
   async close() {
+    if (this.copy) return this.leaveCopy(false);
     if (this.prefix) {
       if (shared("edger.prefix") === props().overlay) setShared("edger.prefix", null);
       return;
@@ -97,6 +99,7 @@ export default class Edger extends View {
   async handle(command, now, cx) {
     if (!this.owner()) return;
     if (command === "prefix") return this.openPrefix();
+    if (command === "copy") return this.openCopy();
     if (command.startsWith("cross:")) {
       const [, op, terminal, at] = command.split(":");
       return this.cross(op, terminal, Number(at), cx);
@@ -360,7 +363,146 @@ export default class Edger extends View {
           .child(div().flex_1().truncate().text_color(t.foreground).child(r.action.label)))));
   }
 
+  // Copy mode for the focused terminal, opened from the prefix (Alt+Z m).
+  openCopy() {
+    const terminal = focused()?.terminal;
+    if (!terminal) return;
+    openOverlay({ mod: "edger", props: { copy: true, terminal }, kind: "popup", at: "top", offset: 6, width: 600 });
+  }
+
+  initCopy(cx) {
+    this.copy = true;
+    this.terminal = props().terminal;
+    this.mode = "cursor";
+    this.keys = [];
+    this.busy = false;
+    this.seq = 0;
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    for (const ms of [20, 80, 200]) cx.timer.after(ms, () => this.handle.focus());
+    // A one-character selection at the program's cursor is the cursor.
+    this.queueCopy({ op: "start" }, cx);
+  }
+
+  // Runs commands, then waits until the app has applied them.
+  async apply(commands) {
+    for (const [name, args] of commands) run(name, args);
+    const marker = `copysync:${++this.seq}:${props().overlay}`;
+    run(`edger.${marker}`);
+    for (;;) if ((await nextCommand()) === marker) return;
+  }
+
+  selection() {
+    return terminals().find((t) => t.address === this.terminal)?.selection ?? null;
+  }
+
+  rows() {
+    const scroll = panes().find((p) => p.terminal === this.terminal)?.scroll;
+    return scroll?.total ?? record(this.terminal)?.rows ?? 1;
+  }
+
+  queueCopy(key, cx) {
+    this.keys.push(key);
+    if (this.busy) return;
+    this.busy = true;
+    cx.spawn(async (cx) => {
+      while (this.keys.length) {
+        try {
+          await this.copyStep(this.keys.shift());
+        } catch (error) {
+          console.log(`edger: copy mode: ${error}`);
+        }
+        cx.notify();
+      }
+      this.busy = false;
+    });
+  }
+
+  async copyStep(key) {
+    const terminal = this.terminal;
+    const collapse = async () => {
+      const end = this.selection()?.end;
+      if (end) await this.apply([["terminal.select", { terminal, at: end }]]);
+    };
+    switch (key.op) {
+      case "start":
+        await this.apply([["terminal.select", { terminal }]]);
+        return;
+      case "exit":
+        return this.leaveCopy(true);
+      case "copy":
+        // A cursor alone is not worth replacing the clipboard for.
+        if (this.mode !== "cursor") await this.apply([["terminal.copy", {}]]);
+        return this.leaveCopy(true);
+      case "select":
+        if (this.mode === "char") { this.mode = "cursor"; return collapse(); }
+        if (this.mode === "lines") await this.apply([["terminal.select", { terminal, at: { row: this.row, col: 0 } }]]);
+        this.mode = "char";
+        return;
+      case "lines": {
+        if (this.mode === "lines") {
+          this.mode = "cursor";
+          return this.apply([["terminal.select", { terminal, at: { row: this.row, col: 0 } }]]);
+        }
+        const end = this.selection()?.end;
+        if (!end) return;
+        this.anchor = this.row = end.row;
+        this.mode = "lines";
+        return this.apply(lineSelection(terminal, this.anchor, this.row, record(terminal)?.cols ?? 1));
+      }
+      case "move": {
+        if (this.mode === "lines") {
+          const page = panes().find((p) => p.terminal === terminal)?.scroll?.len ?? record(terminal)?.rows ?? 1;
+          const by = { up: -1, down: 1, page_up: -page, page_down: page }[key.move];
+          if (!by) return;
+          this.row = Math.max(0, Math.min(this.rows() - 1, this.row + by));
+          return this.apply(lineSelection(terminal, this.anchor, this.row, record(terminal)?.cols ?? 1));
+        }
+        await this.apply([["terminal.adjust_selection", { terminal, direction: key.move }]]);
+        if (this.mode === "cursor") await collapse();
+        return;
+      }
+    }
+  }
+
+  // Clears the selection, returns the view to the bottom, and closes.
+  leaveCopy(close) {
+    if (this.left) return;
+    this.left = true;
+    run("terminal.clear_selection", { terminal: this.terminal });
+    run("terminal.scroll", { terminal: this.terminal, to: "bottom" });
+    if (close) closeOverlay(props().overlay);
+  }
+
+  renderCopy() {
+    const t = theme();
+    const label = { cursor: "move the cursor", char: "selecting", lines: "selecting lines" }[this.mode];
+    const hint = (k, text) => h_flex().gap(4).child(div().text_color(t.accent).font_semibold().child(k)).child(div().text_color(t.muted).child(text));
+    return h_flex()
+      .id("edger-copy")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => {
+        cx.stop_propagation();
+        const key = copyKey(e);
+        if (key) this.queueCopy(key, cx);
+      })
+      .w_full()
+      .px(10)
+      .py(6)
+      .gap(12)
+      .items_center()
+      .bg(t.popover)
+      .text_size(12)
+      .child(div().px(6).py(1).rounded(4).bg(t.accent).text_color(t.accent_foreground).font_semibold().child("COPY"))
+      .child(div().flex_1().text_color(t.foreground).child(label))
+      .child(hint("m", "select"))
+      .child(hint("M", "lines"))
+      .child(hint("c", "copy"))
+      .child(hint("Esc", "leave"));
+  }
+
   render() {
+    if (this.copy) return this.renderCopy();
     return this.prefix ? this.renderPrefix() : div();
   }
 }

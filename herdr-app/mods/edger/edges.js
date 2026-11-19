@@ -249,6 +249,7 @@ export class Local {
 // ("pane.split:down", "edger.left", or {command, args}), with an optional
 // {label}. Read from edger.json's "prefix", else these defaults.
 export const PREFIX_DEFAULTS = {
+  m: "edger.copy",
   u: "pane.split:down",
   i: "pane.split:right",
   z: "pane.zoom",
@@ -268,6 +269,7 @@ const LABELS = {
   "space.new": "new space", "space.close": "close space", "space.rename": "rename space",
   "app.help": "help", "app.settings": "settings", "app.palette": "palette", "window.close": "close window",
   "layout.toggle:sidebar": "sidebar", "terminal.select": "select text", "mod.open:picker": "go to…",
+  "edger.copy": "copy mode",
 };
 
 // One table entry as {command, args, label}: `command` may carry a
@@ -310,4 +312,40 @@ export function prefixMatch(table, event) {
     return prefixAction(table[event.key_char]);
   }
   return null;
+}
+
+// Copy mode: keys to moves, after meow. h/j/k/l and arrows move, a/e go to
+// the line start/end, p/n page up/down; m selects by character, M by line,
+// c copies, Esc leaves.
+const COPY_MOVES = {
+  h: "left", j: "down", k: "up", l: "right",
+  left: "left", down: "down", up: "up", right: "right",
+  a: "line_start", e: "line_end", p: "page_up", n: "page_down",
+  pageup: "page_up", pagedown: "page_down",
+};
+
+export function copyKey(event) {
+  if (!event) return null;
+  const m = event.modifiers ?? {};
+  if (m.control || m.alt || m.platform) return null;
+  if (event.key === "escape") return { op: "exit" };
+  if (event.keystroke === "shift-m" || event.key_char === "M") return { op: "lines" };
+  if (m.shift) return null;
+  if (event.key === "m") return { op: "select" };
+  if (event.key === "c") return { op: "copy" };
+  const move = COPY_MOVES[event.key];
+  return move ? { op: "move", move } : null;
+}
+
+// Commands that select whole rows from `anchor` to `row`, inclusive, in a
+// terminal `cols` wide: a selection can only grow at its moving end, so it
+// starts at the anchor row's edge and moves to the other row's opposite edge.
+export function lineSelection(terminal, anchor, row, cols) {
+  const down = row >= anchor;
+  const steps = Math.abs(row - anchor);
+  return [
+    ["terminal.select", { terminal, at: { row: anchor, col: down ? 0 : Math.max(0, cols - 1) } }],
+    ...Array.from({ length: steps }, () => ["terminal.adjust_selection", { terminal, direction: down ? "down" : "up" }]),
+    ["terminal.adjust_selection", { terminal, direction: down ? "line_end" : "line_start" }],
+  ];
 }

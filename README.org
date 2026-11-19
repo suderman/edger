@@ -187,6 +187,10 @@ The app's own multi-key bindings (=alt-z u=) wait one second with nothing on scr
 
 The list comes from =edger.json= next to =keys.json=, as ={"prefix": {"u": "pane.split:down", "z": "pane.zoom", "{": {"command": "tab.move", "args": {"by": -1}, "label": "move tab left"}}}=: keys as =keys.json= spells them (=shift-d=), or the character typed (=?=, =]=); values as =keys.json= actions, with an optional =label=. Without the file, the mod uses a short default list.
 
+*** Copy mode
+
+The app can select and copy terminal text from commands but has no copy mode, so the prefix list can open Edger's: ="m": "edger.copy"= (in the default list). It shows a one-line bar and starts with a one-character cursor at the program's cursor. =h j k l= (or the arrows) move, =a= and =e= go to the line start and end, =p= and =n= move a page up or down (the view follows into history), =m= starts selecting by character and =M= by whole lines, =c= copies the selection and leaves, and Esc leaves. Leaving clears the selection and scrolls back to the bottom; =c= with nothing selected leaves the clipboard alone. The app has no word motions or search inside a selection, so copy mode has none either.
+
 ** tmux
 
 With TPM, put one of these in =~/.tmux.conf=. Options must come before the plugin entry:
