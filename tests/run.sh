@@ -393,6 +393,7 @@ grep -F 'tmux executable not found' "$tmp/error" >/dev/null
 # Herdr app: an editor's crossing becomes a label on its own Core terminal.
 cat > "$tmp/bin/hc" <<'SH'
 #!/usr/bin/env bash
+if [[ $1 == connect ]]; then cat >> "$EDGER_TEST_LOG.connect"; exit; fi
 printf 'hc %s\n' "$*" >> "$EDGER_TEST_LOG"
 SH
 chmod +x "$tmp/bin/hc"
@@ -452,10 +453,19 @@ chmod +x "$tmp/bin/edger"
 export EDGER_TEST_BIN="$tmp/bin/edger"
 reset_log
 (cd "$root" && nvim --headless --clean -u NONE -l tests/neovim.lua)
+# In a Herdr app terminal Neovim publishes the keys it handles itself and
+# sends crossings over one `hc connect`, without running the script.
 reset_log
+: > "$EDGER_TEST_LOG.connect"
 (cd "$root" && env -u HERDR_PANE_ID HC_TERMINAL_ID=t7 nvim --headless --clean -u NONE --cmd 'set rtp^=.' \
-  -c 'lua require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN })' -c EdgerRight -c 'qa!')
-assert_log 'cross right'
+  -c 'lua require("edger").setup({ keymaps = false, bin = vim.env.EDGER_TEST_BIN })' -c vsplit \
+  -c 'lua require("edger").publish()' -c EdgerRight -c 'lua require("edger").publish()' -c EdgerRight \
+  -c EdgerClose -c 'lua require("edger").publish()' -c 'lua vim.wait(300)' -c 'qa!')
+labels=$(jq -rs 'map(select(.method == "terminal.label" and .params.terminal == "t7") | .params.labels
+  | to_entries[0] | "\(.key)=\(.value | sub("[0-9]+[.][0-9]+$"; "N"))") | join(" ")' "$EDGER_TEST_LOG.connect")
+[[ $labels == 'edger.local=lHLw:0 edger.local=hHLw:1 edger=right:N edger.local=:3' ]] ||
+  { echo "Neovim app labels differ: $labels" >&2; exit 1; }
+assert_absent 'cross'
 # Load the actual tmux plugin on an isolated server, not the user's session.
 server="edger-test-$$"
 PATH=$system_path tmux -L "$server" -f /dev/null new-session -d -s edger-test
