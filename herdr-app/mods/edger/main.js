@@ -18,7 +18,7 @@
 
 import { View, div } from "gpui-kit";
 import { appHome, checking, exec, focused, hc, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
-import { Edges, Forwards, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, parseKey, resizeWeights } from "./edges.js";
+import { Edges, Forwards, Local, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, localLetter, parseKey, resizeWeights } from "./edges.js";
 
 const POLL_MS = 10;
 // The app stores its layout in Core about half a second after a change, so
@@ -33,6 +33,7 @@ export default class Edger extends View {
   init(_props, cx) {
     this.edges = new Edges();
     this.forwards = new Forwards();
+    this.local = new Local();
     this.inbox = [];
     this.seq = 0;
     this.polling = false;
@@ -96,10 +97,11 @@ export default class Edger extends View {
     const f = focused();
     if (!f?.pane) return;
     const r = record(f.terminal);
-    if (isEditor(r)) {
+    if (isEditor(r) && !(await this.passes(f.terminal, op, r, now))) {
       // A move inside the editor ends a confirmation armed for another key.
       if (this.edges.arm?.dir !== op) this.edges.clear();
       this.forwards.add(f.terminal, op, now, r?.labels?.edger);
+      this.local.sent(f.terminal, now);
       this.type(f.terminal, r, key);
       this.poll(cx);
       return;
@@ -107,6 +109,28 @@ export default class Edger extends View {
     if (op in STEP) return this.navigate(op, f, now, cx);
     if (op.startsWith("resize-")) return this.resize(op.slice(7), f);
     return this.action(op, f.pane);
+  }
+
+  // Whether an editor has said it would not use `op`, so the mod acts at
+  // once as for a shell. The app's copy of the label lags Core's by 150 ms
+  // or more, so unless that copy is current and says the editor uses the
+  // key, the mod asks Core before deciding.
+  async passes(terminal, op, record, now) {
+    const label = record?.labels?.["edger.local"];
+    const letter = localLetter(op);
+    // Editors that publish nothing, such as Neovim, always get the key.
+    if (letter === null || label === undefined) return false;
+    const app = this.local.letters(terminal, label, now);
+    if (app !== null && app.includes(letter)) return false;
+    try {
+      const r = await hc(["get", terminal, "--json"]);
+      if (r.code !== 0) return false;
+      const core = this.local.letters(terminal, JSON.parse(r.stdout)?.labels?.["edger.local"], now, true);
+      return core !== null && !core.includes(letter);
+    } catch (error) {
+      console.log(`edger: hc get ${terminal}: ${error}`);
+      return false;
+    }
   }
 
   // Types a key into an editor's terminal, one key at a time so fast presses

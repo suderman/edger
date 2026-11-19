@@ -199,3 +199,48 @@ export class Forwards {
     return found;
   }
 }
+
+// Which letter an editor publishes when it handles `op` itself (see Local);
+// null for splits, which an editor always handles.
+export function localLetter(op) {
+  if (op.startsWith("resize-")) return LETTER[op].toUpperCase();
+  if (op === "horizontal" || op === "vertical") return null;
+  return LETTER[op] ?? null;
+}
+
+// Emacs publishes the label edger.local = "<letters>:<count>": the Edger
+// keys it would handle itself in its selected window, and how many Edger
+// commands it has run in that terminal. Each key sent to it owes one more
+// count; until Emacs has caught up, its letters may be out of date and the
+// key goes to it as before.
+export class Local {
+  constructor() {
+    this.seen = {};
+    this.owed = {};
+  }
+
+  sent(terminal, at) {
+    (this.owed[terminal] ??= []).push(at);
+  }
+
+  // Whether keys sent to the terminal are still unanswered.
+  owes(terminal, now) {
+    this.owed[terminal] = (this.owed[terminal] ?? []).filter((at) => now - at < REQUEST_MS);
+    return this.owed[terminal].length > 0;
+  }
+
+  // The letters, or null when unknown or not yet current. `fresh` labels
+  // come from Core; the app's copy lags, so a count below one already read
+  // there is old, while from Core it means Emacs restarted.
+  letters(terminal, label, now, fresh = false) {
+    this.owes(terminal, now);
+    const m = /^([A-Za-z]*):(\d+)$/.exec(label ?? "");
+    if (!m) return null;
+    const count = Number(m[2]);
+    const seen = this.seen[terminal];
+    if (seen !== undefined && count < seen && !fresh) return null;
+    if (seen !== undefined && count > seen) this.owed[terminal] = this.owed[terminal].slice(count - seen);
+    this.seen[terminal] = count;
+    return this.owed[terminal].length ? null : m[1];
+  }
+}

@@ -1,7 +1,7 @@
 // Herdr app mod logic: node --test tests/edges.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Edges, Forwards, REPEAT_MS, forwardKeys, isEditor, keyHex, parseKey, resizeWeights } from "../herdr-app/mods/edger/edges.js";
+import { Edges, Forwards, Local, REPEAT_MS, forwardKeys, isEditor, keyHex, localLetter, parseKey, resizeWeights } from "../herdr-app/mods/edger/edges.js";
 
 test("editors are found by foreground name or argv[0]", () => {
   assert.ok(isEditor({ foreground: { name: ".emacsclient-wr", argv: ["/nix/store/x/bin/emacsclient", "--tty"] } }));
@@ -190,4 +190,38 @@ test("resize stops at the minimum share and never reverses", () => {
   const fixed = tab();
   fixed.children[1].size = { px: 300 };
   assert.equal(resizeWeights(fixed, "p1", "right"), null);
+});
+
+test("each op has the letter Emacs publishes for it", () => {
+  assert.equal(localLetter("left"), "h");
+  assert.equal(localLetter("resize-right"), "L");
+  assert.equal(localLetter("close"), "w");
+  assert.equal(localLetter("horizontal"), null);
+});
+
+test("Emacs's published keys count only once it has caught up", () => {
+  const l = new Local();
+  assert.equal(l.letters("t3", undefined, 1000), null);
+  assert.equal(l.letters("t3", "lHLw:4", 1000), "lHLw");
+  l.sent("t3", 1100);
+  assert.equal(l.owes("t3", 1110), true);
+  // Not yet answered: the old letters may be stale.
+  assert.equal(l.letters("t3", "lHLw:4", 1120), null);
+  assert.equal(l.letters("t3", "hHLw:5", 1150), "hHLw");
+  assert.equal(l.owes("t3", 1150), false);
+  // Two keys sent, one answered.
+  l.sent("t3", 1200);
+  l.sent("t3", 1210);
+  assert.equal(l.letters("t3", "lHLw:6", 1230), null);
+  assert.equal(l.letters("t3", "hHLw:7", 1250), "hHLw");
+  // The app's copy lags: an older count there says nothing.
+  assert.equal(l.letters("t3", "lHLw:6", 1260), null);
+  // A key Emacs never answers stops counting after REQUEST_MS.
+  l.sent("t3", 2000);
+  assert.equal(l.letters("t3", "hHLw:7", 2100), null);
+  assert.equal(l.letters("t3", "hHLw:7", 3600), "hHLw");
+  // From Core, a lower count means Emacs restarted.
+  assert.equal(l.letters("t3", ":0", 3700, true), "");
+  assert.equal(l.letters("t3", "l:1", 3710), "l");
+  assert.equal(l.letters("t3", "garbage", 3800), null);
 });

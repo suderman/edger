@@ -3,6 +3,9 @@
 (require 'cl-lib)
 (require 'edger)
 
+;; Never reach a real Herdr Core from the tests.
+(setq edger-hc-executable "/nonexistent/edger-test-hc")
+
 (ert-deftest edger-default-and-custom-keys ()
   (unwind-protect
       (progn
@@ -252,15 +255,24 @@
     (delete-other-windows)
     (let ((process-environment (append '("HC_TERMINAL_ID=t7" "TMUX" "TMUX_PANE" "HERDR_PANE_ID")
                                        process-environment))
-          calls)
-      (cl-letf (((symbol-function 'call-process)
+          labels calls)
+      (cl-letf (((symbol-function 'edger--hc-label)
+                 (lambda (terminal key value) (push (list terminal key value) labels) t))
+                ((symbol-function 'call-process)
                  (lambda (&rest args)
                    (push (list args (getenv "EDGER_BACKEND") (getenv "HC_TERMINAL_ID")) calls)
                    0)))
         (should (eq (edger--pane-context) 'app))
         (edger-right)
-        (should (equal (car calls)
-                       (list (list edger-executable nil nil nil "cross" "right") "app" "t7")))
+        (should (equal (butlast (car labels)) '("t7" "edger")))
+        (should (string-match-p "\\`right:[0-9]+\\.[0-9]+\\'" (nth 2 (car labels))))
+        (edger--resize 'up)
+        (should (string-prefix-p "resize-up:" (nth 2 (car labels))))
+        ;; Clearing does nothing in the app, and no process starts.
+        (setq labels nil)
+        (edger--cross "clear")
+        (should-not labels)
+        (should-not calls)
         ;; Inside tmux the innermost multiplexer wins.
         (let ((process-environment (cons "TMUX_PANE=%1" process-environment)))
           (should (eq (edger--pane-context) 'tmux)))
@@ -272,3 +284,40 @@
                                                        ("HC_SESSION" . "probe"))))))))
           (should (eq (edger--pane-context) 'app))
           (should (equal (edger--hc-terminal) "t9")))))))
+
+(ert-deftest edger-herdr-app-crossing-falls-back-to-the-script ()
+  (let ((process-environment (append '("HC_TERMINAL_ID=t7" "TMUX" "TMUX_PANE" "HERDR_PANE_ID")
+                                     process-environment))
+        calls)
+    ;; No hc to connect to: the executable sets the label instead.
+    (cl-letf (((symbol-function 'call-process)
+               (lambda (&rest args) (push (list args (getenv "EDGER_BACKEND")) calls) 0)))
+      (edger--cross "close")
+      (should (equal (car calls) (list (list edger-executable nil nil nil "cross" "close") "app"))))))
+
+(ert-deftest edger-herdr-app-publishes-the-keys-emacs-handles ()
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((process-environment (append '("HC_TERMINAL_ID=t7" "TMUX" "TMUX_PANE" "HERDR_PANE_ID")
+                                       process-environment))
+          (edger--published nil)
+          labels)
+      (cl-letf (((symbol-function 'edger--hc-label)
+                 (lambda (terminal key value) (push (list terminal key value) labels) t)))
+        (let ((this-command 'self-insert-command))
+          (edger--publish)
+          ;; One window, one tab, one frame: Emacs keeps nothing.
+          (should (equal (car labels) '("t7" "edger.local" ":0")))
+          ;; Unchanged after an ordinary command: nothing is sent.
+          (edger--publish)
+          (should (= (length labels) 1))
+          (split-window-right)
+          (edger--publish)
+          (should (equal (car labels) '("t7" "edger.local" "lHLw:0"))))
+        ;; Each Edger command counts, even when the keys stay the same.
+        (let ((this-command 'edger-right))
+          (windmove-right)
+          (edger--publish)
+          (should (equal (car labels) '("t7" "edger.local" "hHLw:1")))
+          (edger--publish)
+          (should (equal (car labels) '("t7" "edger.local" "hHLw:2"))))))))
