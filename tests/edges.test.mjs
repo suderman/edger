@@ -1,7 +1,7 @@
 // Herdr app mod logic: node --test tests/edges.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Edges, Forwards, Local, REPEAT_MS, forwardKeys, isEditor, keyHex, localLetter, parseKey, resizeWeights } from "../herdr-app/mods/edger/edges.js";
+import { Edges, Forwards, Local, PREFIX_DEFAULTS, REPEAT_MS, forwardKeys, isEditor, keyHex, localLetter, parseKey, prefixAction, prefixMatch, prefixRows, resizeWeights } from "../herdr-app/mods/edger/edges.js";
 
 test("editors are found by foreground name or argv[0]", () => {
   assert.ok(isEditor({ foreground: { name: ".emacsclient-wr", argv: ["/nix/store/x/bin/emacsclient", "--tty"] } }));
@@ -224,4 +224,30 @@ test("Emacs's published keys count only once it has caught up", () => {
   assert.equal(l.letters("t3", ":0", 3700, true), "");
   assert.equal(l.letters("t3", "l:1", 3710), "l");
   assert.equal(l.letters("t3", "garbage", 3800), null);
+});
+
+const key = (keystroke, key_char, modifiers = {}) => ({ keystroke, key: keystroke.split("-").pop(), key_char, modifiers });
+
+test("prefix keys match by keystroke, or by the character they type", () => {
+  const table = { u: "pane.split:down", "shift-d": "space.close", "?": "app.help", "{": { command: "tab.move", args: { by: -1 } } };
+  assert.equal(prefixMatch(table, key("u", "u")).command, "pane.split:down");
+  assert.equal(prefixMatch(table, key("shift-d", "D", { shift: true })).command, "space.close");
+  assert.equal(prefixMatch(table, key("shift-/", "?", { shift: true })).command, "app.help");
+  assert.deepEqual(prefixMatch(table, key("shift-[", "{", { shift: true })), { command: "tab.move", args: { by: -1 }, label: "move tab left" });
+  // With Ctrl or Alt held, the typed character does not count.
+  assert.equal(prefixMatch(table, key("ctrl-u", "u", { control: true })), null);
+  assert.equal(prefixMatch(table, key("x", "x")), null);
+  assert.equal(prefixMatch(null, key("u", "u")), null);
+});
+
+test("prefix entries get readable labels and a stable order", () => {
+  assert.equal(prefixAction("tab.select:3").label, "tab 3");
+  assert.equal(prefixAction({ command: "pane.zoom", label: "zoom" }).label, "zoom");
+  assert.equal(prefixAction("custom.thing").label, "custom.thing");
+  assert.equal(prefixAction({ args: {} }), null);
+  const rows = prefixRows({ "?": "app.help", "1": "tab.select:1", "shift-x": "tab.close", u: "pane.split:down", bogus: 7 });
+  assert.deepEqual(rows.map((r) => r.key), ["u", "shift-x", "1", "?"]);
+  const tabs = Object.fromEntries([1, 2, 3, 4].map((n) => [String(n), `tab.select:${n}`]));
+  assert.deepEqual(prefixRows({ ...tabs, z: "pane.zoom" }).map((r) => `${r.key} ${r.action.label}`), ["z zoom pane", "1–4 tab by number"]);
+  assert.ok(prefixRows(PREFIX_DEFAULTS).length >= 8);
 });

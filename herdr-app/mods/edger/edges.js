@@ -244,3 +244,70 @@ export class Local {
     return this.owed[terminal].length ? null : m[1];
   }
 }
+
+// The Alt+Z prefix: a table of keys to actions, written as in keys.json
+// ("pane.split:down", "edger.left", or {command, args}), with an optional
+// {label}. Read from edger.json's "prefix", else these defaults.
+export const PREFIX_DEFAULTS = {
+  u: "pane.split:down",
+  i: "pane.split:right",
+  z: "pane.zoom",
+  h: "pane.go:left",
+  j: "pane.go:down",
+  k: "pane.go:up",
+  l: "pane.go:right",
+  "?": "app.help",
+};
+
+const LABELS = {
+  "pane.split:down": "split down", "pane.split:right": "split right",
+  "pane.go:left": "focus left", "pane.go:down": "focus down", "pane.go:up": "focus up", "pane.go:right": "focus right",
+  "pane.swap:left": "swap left", "pane.swap:down": "swap down", "pane.swap:up": "swap up", "pane.swap:right": "swap right",
+  "pane.zoom": "zoom pane", "pane.close": "close pane",
+  "tab.new": "new tab", "tab.close": "close tab", "tab.rename": "rename tab", "tab.prev": "previous tab", "tab.next": "next tab",
+  "space.new": "new space", "space.close": "close space", "space.rename": "rename space",
+  "app.help": "help", "app.settings": "settings", "app.palette": "palette", "window.close": "close window",
+  "layout.toggle:sidebar": "sidebar", "terminal.select": "select text", "mod.open:picker": "go to…",
+};
+
+// One table entry as {command, args, label}: `command` may carry a
+// keys.json shorthand value ("pane.split:down"), which run() accepts.
+export function prefixAction(value) {
+  if (typeof value === "string") {
+    const tab = /^tab\.select:(\d+)$/.exec(value);
+    return { command: value, args: undefined, label: LABELS[value] ?? (tab ? `tab ${tab[1]}` : value) };
+  }
+  if (!value || typeof value.command !== "string") return null;
+  const by = value.args?.by;
+  const label = value.label
+    ?? (value.command === "tab.move" && typeof by === "number" ? `move tab ${by < 0 ? "left" : "right"}` : null)
+    ?? LABELS[value.command] ?? value.command;
+  return { command: value.command, args: value.args, label };
+}
+
+// Rows for the popup, in a stable order: letters, digits, then the rest.
+// Digits that select tabs by number show as one row.
+export function prefixRows(table) {
+  const rank = (k) => (/^[a-z]$/.test(k) ? 0 : /^shift-[a-z]$/.test(k) ? 1 : /^[0-9]/.test(k) ? 2 : 3);
+  const rows = Object.entries(table ?? {})
+    .map(([key, value]) => ({ key, action: prefixAction(value) }))
+    .filter((r) => r.action);
+  const tabs = rows.filter((r) => /^[1-9]$/.test(r.key) && r.action.command === `tab.select:${r.key}`).map((r) => r.key).sort();
+  const grouped = tabs.length > 2
+    ? rows.filter((r) => !tabs.includes(r.key)).concat([{ key: `${tabs[0]}–${tabs.at(-1)}`, action: { label: "tab by number" } }])
+    : rows;
+  return grouped.sort((a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key));
+}
+
+// The entry a key press selects: its keystroke as keys.json spells it
+// ("shift-d"), or the character it types ("?", "{") when no Ctrl, Alt or
+// Super is held.
+export function prefixMatch(table, event) {
+  if (!table || !event) return null;
+  if (Object.hasOwn(table, event.keystroke)) return prefixAction(table[event.keystroke]);
+  const m = event.modifiers ?? {};
+  if (event.key_char && !m.control && !m.alt && !m.platform && Object.hasOwn(table, event.key_char)) {
+    return prefixAction(table[event.key_char]);
+  }
+  return null;
+}

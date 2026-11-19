@@ -181,6 +181,12 @@ Emacs and Neovim avoid that round trip. After each command each publishes the Ed
 
 Otherwise the mod moves between panes, then tabs of the space (left/right) or spaces (up/down), and splits or closes the pane itself. Moving to a neighboring split clears zoom; at an edge zoom stays. Alt+w keeps the last pane of the last space. A double press at the last tab or space makes a tab, or a space on the same machine. The app gives key bindings no repeat flag, so a creation waits 120 ms and a further press of the same key in that time, as from a held key, cancels it. Resizing moves the nearest divider in that direction, after the pane if there is one, else before it, by 5% of its split, and stops with 5% left on either side. The mod reads the split tree and its weights from Core (=doc.get= on the "herdr-app" document, through =hc connect=, from the space's machine) and sets them with =layout.resize=. The app stores a change in Core about half a second later, so for 1.5 s after a resize the mod reuses the weights it set; a divider dragged with the mouse and then resized from the keyboard within that time jumps back.
 
+*** Alt+Z prefix
+
+The app's own multi-key bindings (=alt-z u=) wait one second with nothing on screen, and an unfinished one reaches the program. Bind ="alt-z": "edger.prefix"= instead, and remove any other =alt-z …= binding so the app does not wait for one. Alt+Z then opens a small list of the next keys and waits for one, with no time limit; Esc or any other key closes it. This is the way to split or zoom a Herdr pane while an editor has focus. Holding Alt for the second key works too.
+
+The list comes from =edger.json= next to =keys.json=, as ={"prefix": {"u": "pane.split:down", "z": "pane.zoom", "{": {"command": "tab.move", "args": {"by": -1}, "label": "move tab left"}}}=: keys as =keys.json= spells them (=shift-d=), or the character typed (=?=, =]=); values as =keys.json= actions, with an optional =label=. Without the file, the mod uses a short default list.
+
 ** tmux
 
 With TPM, put one of these in =~/.tmux.conf=. Options must come before the plugin entry:

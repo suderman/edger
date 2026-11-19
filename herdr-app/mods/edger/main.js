@@ -17,8 +17,9 @@
 // started last acts, so a second host does not move twice.
 
 import { View, div } from "gpui-kit";
-import { appHome, checking, exec, focused, hc, nextCommand, panes, run, setShared, shared, spaces, terminals } from "herdr";
-import { Edges, Forwards, Local, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, localLetter, parseKey, resizeWeights } from "./edges.js";
+import { h_flex, v_flex } from "gpui-base";
+import { appHome, checking, closeOverlay, exec, focused, hc, nextCommand, openOverlay, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme } from "herdr";
+import { Edges, Forwards, LETTER, Local, PREFIX_DEFAULTS, REPEAT_MS, STEP, forwardKeys, isEditor, keyHex, localLetter, parseKey, prefixMatch, prefixRows, resizeWeights } from "./edges.js";
 
 const POLL_MS = 10;
 // The app stores its layout in Core about half a second after a change, so
@@ -31,6 +32,8 @@ function record(address) {
 
 export default class Edger extends View {
   init(_props, cx) {
+    // The Alt+Z prefix popup is another copy of this mod.
+    if (props()?.prefix) return this.initPrefix(cx);
     this.edges = new Edges();
     this.forwards = new Forwards();
     this.local = new Local();
@@ -42,6 +45,8 @@ export default class Edger extends View {
     this.id = `${Date.now()}:${Math.random()}`;
     if (checking()) return;
     setShared("edger.copy", this.id);
+    // A popup flag left by a crash or restart would capture the next key.
+    if (shared("edger.prefix")) setShared("edger.prefix", null);
     cx.spawn(async (cx) => {
       for (;;) {
         const next = this.inbox.length ? this.inbox.shift() : await this.receive();
@@ -55,6 +60,10 @@ export default class Edger extends View {
   }
 
   async close() {
+    if (this.prefix) {
+      if (shared("edger.prefix") === props().overlay) setShared("edger.prefix", null);
+      return;
+    }
     if (shared("edger.copy") === this.id) setShared("edger.copy", null);
   }
 
@@ -87,6 +96,7 @@ export default class Edger extends View {
 
   async handle(command, now, cx) {
     if (!this.owner()) return;
+    if (command === "prefix") return this.openPrefix();
     if (command.startsWith("cross:")) {
       const [, op, terminal, at] = command.split(":");
       return this.cross(op, terminal, Number(at), cx);
@@ -94,6 +104,9 @@ export default class Edger extends View {
     const parsed = parseKey(command);
     if (!parsed) return;
     const { op, key } = parsed;
+    // With Alt still held after Alt+Z, the app sends Edger's own keys here,
+    // not to the popup: treat them as the prefix's next key.
+    if (shared("edger.prefix")) return this.prefixKey(op);
     const f = focused();
     if (!f?.pane) return;
     const r = record(f.terminal);
@@ -271,7 +284,83 @@ export default class Edger extends View {
     run("pane.close", { pane });
   }
 
+  // Alt+Z: show the prefix table and wait for one key, with no timeout.
+  // edger.json beside keys.json may give the table as {"prefix": {...}}.
+  async openPrefix() {
+    const open = shared("edger.prefix");
+    if (open) { closeOverlay(open); setShared("edger.prefix", null); return; }
+    let table = PREFIX_DEFAULTS;
+    try {
+      const text = await readTextFile(`${appHome()}/edger.json`);
+      const prefix = text && JSON.parse(text)?.prefix;
+      if (prefix && typeof prefix === "object") table = prefix;
+    } catch (error) {
+      console.log(`edger: edger.json: ${error}`);
+    }
+    this.prefixTable = table;
+    openOverlay({ mod: "edger", props: { prefix: true, table }, kind: "popup", at: "top", offset: 40, width: 560 });
+  }
+
+  prefixKey(op) {
+    closeOverlay(shared("edger.prefix"));
+    setShared("edger.prefix", null);
+    const letter = LETTER[op];
+    const action = prefixMatch(this.prefixTable, { keystroke: op.startsWith("resize-") ? `shift-${letter}` : letter, modifiers: {} });
+    if (!action) return;
+    if (action.args === undefined) run(action.command);
+    else run(action.command, action.args);
+  }
+
+  initPrefix(cx) {
+    this.prefix = true;
+    this.table = props().table ?? PREFIX_DEFAULTS;
+    this.rows = prefixRows(this.table);
+    this.handle = cx.focus_handle();
+    setShared("edger.prefix", props().overlay);
+    // The popup takes the keyboard once it has drawn.
+    this.handle.focus();
+    for (const ms of [20, 80, 200]) cx.timer.after(ms, () => this.handle.focus());
+  }
+
+  dismiss() {
+    if (shared("edger.prefix") === props().overlay) setShared("edger.prefix", null);
+    closeOverlay(props().overlay);
+  }
+
+  key(e, cx) {
+    cx.stop_propagation();
+    if (e.key === "escape") return this.dismiss();
+    // Accept the key whether or not Alt is still held from Alt+Z.
+    const bare = e.modifiers?.alt ? { ...e, keystroke: e.keystroke.replace(/(^|-)alt-/, "$1"), modifiers: { ...e.modifiers, alt: false } } : e;
+    const action = prefixMatch(this.table, e) ?? prefixMatch(this.table, bare);
+    this.dismiss();
+    if (!action) return;
+    if (action.args === undefined) run(action.command);
+    else run(action.command, action.args);
+  }
+
+  renderPrefix() {
+    const t = theme();
+    return v_flex()
+      .id("edger-prefix")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => this.key(e, cx))
+      .w_full()
+      .p(14)
+      .gap(10)
+      .bg(t.popover)
+      .text_size(13)
+      .child(h_flex().items_center().gap(8)
+        .child(div().px(6).py(2).rounded(5).bg(t.accent).text_color(t.accent_foreground).font_semibold().child("alt-z"))
+        .child(div().flex_1().text_color(t.muted).child("then a key"))
+        .child(div().text_size(11).text_color(t.dim).child("Esc")))
+      .child(div().flex().flex_wrap().gap_y(4).children(this.rows.map((r) =>
+        h_flex().w(176).gap(8).items_center()
+          .child(div().w(52).flex_none().text_color(t.accent).font_semibold().child(r.key))
+          .child(div().flex_1().truncate().text_color(t.foreground).child(r.action.label)))));
+  }
+
   render() {
-    return div();
+    return this.prefix ? this.renderPrefix() : div();
   }
 }
