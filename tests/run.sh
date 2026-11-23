@@ -471,16 +471,22 @@ server="edger-test-$$"
 PATH=$system_path tmux -L "$server" -f /dev/null new-session -d -s edger-test
 socket=$(PATH=$system_path tmux -L "$server" display-message -p '#{socket_path}')
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
+# Filter the whole table: since tmux 3.7, `list-keys -T root KEY` prints
+# nothing and succeeds whether or not KEY is bound.
+root_binding() {
+  PATH=$system_path tmux -L "$server" list-keys -T root |
+    awk -v key="$1" '{ for (i = 1; i < NF; i++) if ($i == "-T") { if ($(i + 2) == key) print; break } }'
+}
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger resize left M-H' >/dev/null
-PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close M-w' >/dev/null
-if PATH=$system_path tmux -L "$server" list-keys -T root M-t >/dev/null 2>&1; then echo 'Removed tab binding present' >&2; exit 1; fi
+root_binding M-w | grep -F 'edger close M-w' >/dev/null
+[[ -z $(root_binding M-t) ]] || { echo 'Removed tab binding present' >&2; exit 1; }
 PATH=$system_path tmux -L "$server" set-option -g @edger-key C
 PATH=$system_path tmux -L "$server" set-option -g @edger-close-key q
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
 PATH=$system_path tmux -L "$server" list-keys -T root | grep -F 'edger close C-q' >/dev/null
 PATH=$system_path tmux -L "$server" set-option -g @edger-key C-M
 PATH=$system_path TMUX="$socket,0,0" bash "$root/edger.tmux"
-PATH=$system_path tmux -L "$server" list-keys -T root C-M-j | grep -F 'EDGER_TMUX_CLIENT_TTY=' >/dev/null
+root_binding C-M-j | grep -F 'EDGER_TMUX_CLIENT_TTY=' >/dev/null
 # A real zoomed tmux pane reports every edge until zoom is cleared.
 system_tmux=$(PATH=$system_path command -v tmux)
 printf -v system_tmux %q "$system_tmux"
